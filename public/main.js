@@ -94,18 +94,18 @@ const CAR_CONFIGS = {
     modelScale: 0.25,
     minPixel: 150,
     maxScale: 0.5,
-    zLift: -2.5,
+    zLift: -2.6,
     yawOffsetDeg: 90,
     pitchOffsetDeg: -0.5,
 
     camScreenRightOffsetM: -1.2,
 
-    camRearDistBase: 15,
+    camRearDistBase: 18,
     camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
-    camPitchBaseDeg: -12,
-    camPitchAddDeg: 1.5,
+    camPitchBaseDeg: -15,
+    camPitchAddDeg: 0.5,
 
     topHeightBase: 45,
     topHeightAdd: 110,
