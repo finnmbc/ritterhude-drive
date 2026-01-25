@@ -117,7 +117,7 @@ const CAR_CONFIGS = {
     modelScale: 0.25,
     minPixel: 150,
     maxScale: 0.5,
-    zLift: 1,
+    zLift: 0,
     yawOffsetDeg: 270,
     pitchOffsetDeg: 90,
     rollOffsetDeg: 0,
