@@ -76,12 +76,12 @@ const CAR_CONFIGS = {
 
     camScreenRightOffsetM: 0.125,
 
-    camRearDistBase: 26,
-    camRearDistAdd: 5,
+    camRearDistBase: 22,
+    camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
-    camPitchBaseDeg: -17,
-    camPitchAddDeg: 1.0,
+    camPitchBaseDeg: -20,
+    camPitchAddDeg: 3.0,
 
     topHeightBase: 55,
     topHeightAdd: 120,
@@ -100,12 +100,12 @@ const CAR_CONFIGS = {
 
     camScreenRightOffsetM: -1.2,
 
-    camRearDistBase: 26,
-    camRearDistAdd: 5,
+    camRearDistBase: 22,
+    camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
-    camPitchBaseDeg: -17,
-    camPitchAddDeg: 1.0,
+    camPitchBaseDeg: -20,
+    camPitchAddDeg: 3.0,
 
     topHeightBase: 45,
     topHeightAdd: 110,
@@ -125,12 +125,12 @@ const CAR_CONFIGS = {
 
     camScreenRightOffsetM: 0.0,
 
-    camRearDistBase: 26,
-    camRearDistAdd: 5,
+    camRearDistBase: 22,
+    camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
-    camPitchBaseDeg: -17,
-    camPitchAddDeg: 1.0,
+    camPitchBaseDeg: -20,
+    camPitchAddDeg: 3.0,
 
     topHeightBase: 45,
     topHeightAdd: 110,
