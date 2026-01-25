@@ -71,7 +71,7 @@ const CAR_CONFIGS = {
     modelScale: 100.0,
     minPixel: 450,
     maxScale: 100.0,
-    zLift: 0.0,
+    zLift: -0.25,
     yawOffsetDeg: 270,
 
     camScreenRightOffsetM: 0.125,
@@ -96,7 +96,7 @@ const CAR_CONFIGS = {
     maxScale: 0.5,
     zLift: -2.5,
     yawOffsetDeg: 90,
-    pitchOffsetDeg: -1.0,
+    pitchOffsetDeg: -0.5,
 
     camScreenRightOffsetM: -1.2,
 
@@ -118,7 +118,7 @@ const CAR_CONFIGS = {
     modelScale: 0.325,
     minPixel: 150,
     maxScale: 0.5,
-    zLift: 1.0,
+    zLift: 0.75,
     yawOffsetDeg: 270,
     pitchOffsetDeg: 90,
     rollOffsetDeg: 0,
