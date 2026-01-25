@@ -94,7 +94,7 @@ const CAR_CONFIGS = {
     modelScale: 0.25,
     minPixel: 150,
     maxScale: 0.5,
-    zLift: -2.5,
+    zLift: -2.0,
     yawOffsetDeg: 90,
 
     camScreenRightOffsetM: -1.2,
@@ -114,7 +114,7 @@ const CAR_CONFIGS = {
     name: "BULLI",
     uri: CAR_BULLI_GLB,
 
-    modelScale: 0.5,
+    modelScale: 0.3,
     minPixel: 150,
     maxScale: 0.5,
     zLift: 0.5,
