@@ -68,7 +68,7 @@ const CAR_CONFIGS = {
     name: "KONA",
     uri: CAR_KONA_GLB,
 
-    modelScale: 30.0,
+    modelScale: 100.0,
     minPixel: 450,
     maxScale: 100.0,
     zLift: 0.0,
@@ -114,7 +114,7 @@ const CAR_CONFIGS = {
     name: "BULLI",
     uri: CAR_BULLI_GLB,
 
-    modelScale: 0.25,
+    modelScale: 0.5,
     minPixel: 150,
     maxScale: 0.5,
     zLift: 0.5,
