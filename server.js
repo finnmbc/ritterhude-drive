@@ -1,35 +1,45 @@
+const path = require("path");
+const http = require("http");
+const express = require("express");
 const { WebSocketServer } = require("ws");
 const crypto = require("crypto");
 
-const PORT = 8080;
-const wss = new WebSocketServer({ port: PORT });
+const app = express();
 
+// Frontend ausliefern
+app.use(express.static(path.join(__dirname, "public")));
+
+// Fallback: immer index.html
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// HTTP Server (Render braucht HTTP)
+const server = http.createServer(app);
+
+// WebSocket auf dem gleichen Server
+const wss = new WebSocketServer({ server });
+
+// ========= Multiplayer State =========
 const CLASS_SPAWNS = {
   KONA:  { lat: 53.18167657056033, lon: 8.739374157976243, headingDeg: 20 },
   BENZ:  { lat: 53.18493709131292, lon: 8.71229577112801, headingDeg: 8.5 },
   BULLI: { lat: 53.18605835934793, lon: 8.745079683720112, headingDeg: 90 },
 };
 
-// playerId -> { id, carKey, lat, lon, heading, speed, gear, t }
-const players = new Map();
-
-// carKey -> playerId (Lock)
-const classLocks = new Map();
-
-// ws -> playerId
-const clients = new Map();
+const players = new Map();     // id -> player
+const classLocks = new Map();  // carKey -> id
+const clients = new Map();     // ws -> id
 
 function send(ws, obj) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
 }
-
 function broadcast(obj) {
   const msg = JSON.stringify(obj);
   for (const ws of wss.clients) {
     if (ws.readyState === ws.OPEN) ws.send(msg);
   }
 }
-
 function getClassTakenMap() {
   return {
     KONA: classLocks.has("KONA"),
@@ -37,16 +47,14 @@ function getClassTakenMap() {
     BULLI: classLocks.has("BULLI"),
   };
 }
-
 function broadcastClassStatus() {
   broadcast({ type: "class_status", taken: getClassTakenMap() });
 }
-
 function snapshot() {
   return Array.from(players.values());
 }
 
-// 15 Hz snapshot broadcast
+// 15 Hz Snapshot
 setInterval(() => {
   broadcast({ type: "snapshot", players: snapshot(), serverTime: Date.now() });
 }, 1000 / 15);
@@ -58,7 +66,7 @@ wss.on("connection", (ws) => {
   send(ws, { type: "hello", id });
   send(ws, { type: "class_status", taken: getClassTakenMap() });
 
-  ws.on("message",(raw) => {
+  ws.on("message", (raw) => {
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
 
@@ -90,7 +98,6 @@ wss.on("connection", (ws) => {
       // lock setzen
       classLocks.set(carKey, pid);
 
-      // spieler anlegen
       const sp = CLASS_SPAWNS[carKey];
       const p = {
         id: pid,
@@ -128,7 +135,6 @@ wss.on("connection", (ws) => {
       p.speed = speed;
       p.gear = msg.gear === "R" ? "R" : "D";
       p.t = Date.now();
-      return;
     }
   });
 
@@ -150,4 +156,8 @@ wss.on("connection", (ws) => {
   });
 });
 
-console.log(`WS server running on ws://localhost:${PORT}`);
+// Render PORT benutzen!
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`HTTP + WS listening on port ${PORT}`);
+});

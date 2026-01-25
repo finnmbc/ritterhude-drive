@@ -258,6 +258,7 @@ async function spawnCar({ lat, lon, carKey, headingDeg = REWE_HEADING_DEG, reset
 const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
 const ws = new WebSocket(WS_URL);
 
+
 let wsOpen = false;
 let myId = null;
 
