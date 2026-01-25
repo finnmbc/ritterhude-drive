@@ -100,12 +100,12 @@ const CAR_CONFIGS = {
 
     camScreenRightOffsetM: -1.2,
 
-    camRearDistBase: 12,
+    camRearDistBase: 15,
     camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
-    camPitchBaseDeg: -20,
-    camPitchAddDeg: 3.0,
+    camPitchBaseDeg: -12,
+    camPitchAddDeg: 1.5,
 
     topHeightBase: 45,
     topHeightAdd: 110,
