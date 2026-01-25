@@ -74,7 +74,7 @@ const CAR_CONFIGS = {
     zLift: -0.125,
     yawOffsetDeg: 270,
 
-    camScreenRightOffsetM: 0.125,
+    camScreenRightOffsetM: -0.125,
 
     camRearDistBase: 18,
     camRearDistAdd: 7,
@@ -98,7 +98,7 @@ const CAR_CONFIGS = {
     yawOffsetDeg: 90,
     pitchOffsetDeg: -0.25,
 
-    camScreenRightOffsetM: -1.2125,
+    camScreenRightOffsetM: -1.25,
 
     camRearDistBase: 18,
     camRearDistAdd: 7,
