@@ -76,11 +76,11 @@ const CAR_CONFIGS = {
 
     camScreenRightOffsetM: 0.125,
 
-    camRearDistBase: 28,
+    camRearDistBase: 24,
     camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
-    camPitchBaseDeg: -20,
+    camPitchBaseDeg: -15,
     camPitchAddDeg: 1.5,
 
     topHeightBase: 55,
@@ -99,12 +99,12 @@ const CAR_CONFIGS = {
 
     camScreenRightOffsetM: -1.2,
 
-    camRearDistBase: 22,
+    camRearDistBase: 24,
     camRearDistAdd: 7,
-    camHeightBase: 12,
+    camHeightBase: 5,
     camHeightAdd: 6.0,
-    camPitchBaseDeg: -20,
-    camPitchAddDeg: 3.0,
+    camPitchBaseDeg: -15,
+    camPitchAddDeg: 1.5,
 
     topHeightBase: 45,
     topHeightAdd: 110,
@@ -124,12 +124,12 @@ const CAR_CONFIGS = {
 
     camScreenRightOffsetM: 0.0,
 
-    camRearDistBase: 22,
+    camRearDistBase: 24,
     camRearDistAdd: 7,
-    camHeightBase: 12,
+    camHeightBase: 5,
     camHeightAdd: 6.0,
-    camPitchBaseDeg: -20,
-    camPitchAddDeg: 3.0,
+    camPitchBaseDeg: -15,
+    camPitchAddDeg: 1.5,
 
     topHeightBase: 45,
     topHeightAdd: 110,
@@ -203,8 +203,8 @@ function createCarEntity(cfg) {
     position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
     model: {
       uri: cfg.uri,
-      minimumPixelSize: cfg.minPixel,
-      maximumScale: cfg.maxScale,
+      minimumPixelSize: 0,//cfg.minPixel,
+      //maximumScale: cfg.maxScale,
       scale: cfg.modelScale,
     },
     box: {
@@ -302,8 +302,8 @@ function createRemoteCarEntity(cfg, lat, lon, h, groundH = 0) {
     position: pos,
     model: {
       uri: cfg.uri,
-      minimumPixelSize: cfg.minPixel,
-      maximumScale: cfg.maxScale,
+      minimumPixelSize: 0,//cfg.minPixel,
+      //maximumScale: cfg.maxScale,
       scale: cfg.modelScale,
     },
   });
