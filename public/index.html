@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ritterhude Drive</title>
+
+    <!-- Cesium (CDN) -->
+    <link
+      rel="stylesheet"
+      href="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Widgets/widgets.css"
+    />
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Cesium.js"></script>
+
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+      }
+      #cesiumContainer {
+        position: absolute;
+        inset: 0;
+      }
+      /* Minimales Cesium-UI ausblenden */
+      .cesium-viewer-toolbar,
+      .cesium-viewer-animationContainer,
+      .cesium-viewer-timelineContainer,
+      .cesium-viewer-bottom {
+        display: none !important;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="cesiumContainer"></div>
+
+    <!-- Dein Game -->
+    <script src="./main.js"></script>
+  </body>
+</html>
