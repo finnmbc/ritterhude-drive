@@ -267,6 +267,89 @@ async function toggleRadio() {
 }
 
 // =====================================================
+// ✅ GPS MODE (Geolocation -> überschreibt Auto-Position)
+// =====================================================
+let gpsMode = false;
+let gpsWatchId = null;
+
+let gpsFix = null; // { lat, lon, acc, ts, headingRad, speedMps }
+let gpsPrevFix = null;
+
+function bearingRad(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return Math.atan2(y, x); // -PI..PI (0 = Norden, positiv Richtung Osten)
+}
+
+function startGpsWatch() {
+  if (!navigator.geolocation) {
+    console.warn("Geolocation nicht verfügbar.");
+    return;
+  }
+  if (gpsWatchId != null) return;
+
+  gpsWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const { latitude, longitude, accuracy, heading: hDeg, speed: sMps } = pos.coords;
+
+      let headingRad = Number.isFinite(hDeg) ? Cesium.Math.toRadians(hDeg) : null;
+
+      // Fallback: Heading aus Bewegung berechnen, wenn Browser keins liefert
+      const nextFix = { lat: latitude, lon: longitude, ts: pos.timestamp };
+      if (headingRad == null && gpsPrevFix) {
+        const moved = haversineMeters(gpsPrevFix.lat, gpsPrevFix.lon, nextFix.lat, nextFix.lon);
+        if (moved > 2.0) headingRad = bearingRad(gpsPrevFix.lat, gpsPrevFix.lon, nextFix.lat, nextFix.lon);
+      }
+      gpsPrevFix = nextFix;
+
+      gpsFix = {
+        lat: latitude,
+        lon: longitude,
+        acc: accuracy,
+        ts: pos.timestamp,
+        headingRad: headingRad,
+        speedMps: Number.isFinite(sMps) ? sMps : null,
+      };
+    },
+    (err) => {
+      console.warn("GPS Fehler:", err);
+      gpsFix = null;
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 500,
+      timeout: 8000,
+    }
+  );
+}
+
+function stopGpsWatch() {
+  if (gpsWatchId == null) return;
+  navigator.geolocation.clearWatch(gpsWatchId);
+  gpsWatchId = null;
+  gpsFix = null;
+  gpsPrevFix = null;
+}
+
+function setGpsMode(on) {
+  gpsMode = !!on;
+  if (gpsMode) startGpsWatch();
+  else stopGpsWatch();
+
+  playersDirtyForUi = true;
+
+  if (mapMsg && isMapOpen()) {
+    mapMsg.textContent = gpsMode
+      ? "GPS Mode AN: Position kommt vom Gerät. (W/A/S/D bewegt nicht mehr.)"
+      : "GPS Mode AUS: normale Steuerung aktiv.";
+  }
+}
+
+// =====================================================
 // HELPERS
 // =====================================================
 const metersPerDegLat = 111320;
@@ -863,6 +946,7 @@ function isUmlautA(e) {
 
 // =====================================================
 // ✅ GROßE MAP (Buttons sollen 1x reichen → kein UI-Neurender mitten im Klick)
+// + ✅ GPS Checkbox + ✅ X daneben zum Schließen
 // =====================================================
 let mapOverlay = null;
 let mapViewer = null;
@@ -959,14 +1043,69 @@ function ensureMapOverlay() {
   const btnSearch = mkBtn("Suchen");
   const btnSet = mkBtn("Ziel hier (Mitte)", true);
   const btnClear = mkBtn("Ziel löschen");
-  const btnClose = mkBtn("Schließen");
+
+  // ✅ GPS Checkbox
+  const gpsWrap = document.createElement("div");
+  gpsWrap.style.display = "flex";
+  gpsWrap.style.gap = "8px";
+  gpsWrap.style.alignItems = "center";
+
+  const gpsLabel = document.createElement("label");
+  gpsLabel.style.display = "flex";
+  gpsLabel.style.alignItems = "center";
+  gpsLabel.style.gap = "8px";
+  gpsLabel.style.padding = "8px 10px";
+  gpsLabel.style.borderRadius = "12px";
+  gpsLabel.style.border = "1px solid rgba(255,255,255,0.18)";
+  gpsLabel.style.background = "rgba(255,255,255,0.08)";
+  gpsLabel.style.cursor = "pointer";
+  gpsLabel.style.userSelect = "none";
+  gpsLabel.title = "Wenn aktiv, kommt deine Position vom Geräte-GPS statt von W/A/S/D.";
+
+  const gpsCb = document.createElement("input");
+  gpsCb.type = "checkbox";
+  gpsCb.checked = gpsMode;
+  gpsCb.style.transform = "scale(1.1)";
+  gpsCb.onchange = () => setGpsMode(gpsCb.checked);
+
+  const gpsText = document.createElement("span");
+  gpsText.textContent = "GPS Mode";
+  gpsText.style.font = "900 13px system-ui, Arial";
+  gpsText.style.opacity = "0.95";
+
+  gpsLabel.appendChild(gpsCb);
+  gpsLabel.appendChild(gpsText);
+
+  // ✅ X Close Button direkt daneben
+  const btnCloseX = document.createElement("button");
+  btnCloseX.textContent = "✕";
+  btnCloseX.title = "Schließen";
+  btnCloseX.style.width = "40px";
+  btnCloseX.style.height = "40px";
+  btnCloseX.style.display = "grid";
+  btnCloseX.style.placeItems = "center";
+  btnCloseX.style.borderRadius = "12px";
+  btnCloseX.style.border = "1px solid rgba(255,255,255,0.18)";
+  btnCloseX.style.background = "rgba(255,255,255,0.10)";
+  btnCloseX.style.color = "white";
+  btnCloseX.style.cursor = "pointer";
+  btnCloseX.style.font = "1000 18px system-ui, Arial";
+  btnCloseX.onclick = () => toggleBigMap(false);
+
+  gpsWrap.appendChild(gpsLabel);
+  gpsWrap.appendChild(btnCloseX);
 
   topbar.appendChild(title);
   topbar.appendChild(input);
   topbar.appendChild(btnSearch);
   topbar.appendChild(btnSet);
   topbar.appendChild(btnClear);
-  topbar.appendChild(btnClose);
+  topbar.appendChild(gpsWrap);
+
+  // Checkbox sync beim Öffnen
+  mapOverlay.__syncGpsCheckbox = () => {
+    gpsCb.checked = gpsMode;
+  };
 
   const body = document.createElement("div");
   body.style.position = "absolute";
@@ -1193,7 +1332,6 @@ function ensureMapOverlay() {
         mapMsg.textContent = "Nichts gefunden. Andere Schreibweise probieren.";
         return;
       }
-      // (unchanged)
       centerBigMapOn(hit.lat, hit.lon, 1800);
       mapMsg.textContent = "Gefunden. Ziehen/Zoomen und „Ziel hier“ drücken.";
     } catch (e) {
@@ -1238,8 +1376,6 @@ function ensureMapOverlay() {
     playersDirtyForUi = true;
   };
 
-  btnClose.onclick = () => toggleBigMap(false);
-
   mapOverlay.__refreshPlayers = refreshBigMapPlayers;
 }
 
@@ -1250,6 +1386,8 @@ function toggleBigMap(force) {
   if (!show) bigMapCenterFollowKey = null; // ✅ beim Schließen kein stuck-center
 
   if (show) {
+    if (mapOverlay?.__syncGpsCheckbox) mapOverlay.__syncGpsCheckbox();
+
     const lat = joinAccepted ? carLat : startLat;
     const lon = joinAccepted ? carLon : startLon;
     centerBigMapOn(lat, lon, 1600);
@@ -1399,80 +1537,108 @@ viewer.scene.postRender.addEventListener(() => {
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
 
-  // ======= FAHREN (unverändert) =======
-  const maxSpeed = (VMAX_KMH / 3.6) * SPEED_FEEL_SCALE;
-  const reverseMax = 9.5;
-  const engineAccel = (27.78 * SPEED_FEEL_SCALE) / 4.0;
-  const brakeDecel = 24.0;
-  const rollDecel = 2.0;
-  const dragK = 0.0013;
+  // ======= FAHREN / GPS OVERRIDE =======
+  let kmhDisplay = 0;
 
-  const pressingW = !!keys["KeyW"];
-  const pressingS = !!keys["KeyS"];
-  const noPedals = !pressingW && !pressingS;
+  if (gpsMode) {
+    // Position kommt vom GPS — nicht mehr aus W/A/S/D
+    if (gpsFix && Number.isFinite(gpsFix.lat) && Number.isFinite(gpsFix.lon)) {
+      carLat = gpsFix.lat;
+      carLon = gpsFix.lon;
 
-  if (noPedals && Math.abs(speed) < 0.25) speed = 0;
+      if (Number.isFinite(gpsFix.headingRad)) heading = gpsFix.headingRad;
 
-  if (Math.abs(speed) < 0.25) {
-    if (!pressingS) sArmed = true;
-    if (!pressingW) wArmed = true;
-  } else {
-    sArmed = false;
-    wArmed = false;
-  }
+      const s = Number.isFinite(gpsFix.speedMps) ? gpsFix.speedMps : 0;
+      speed = s * SPEED_FEEL_SCALE;
+      kmhDisplay = s * 3.6;
 
-  if (gear === "D") {
-    if (Math.abs(speed) < 0.25 && sArmed && pressingS) {
-      gear = "R";
-      sArmed = false;
-      wArmed = false;
-      speed = 0;
-    }
-    if (pressingW) speed = Math.max(0, speed) + engineAccel * dt;
-    else if (pressingS) speed = Math.max(0, Math.max(0, speed) - brakeDecel * dt);
-    else speed = Math.max(0, Math.max(0, speed) - rollDecel * dt);
-    speed = Math.min(maxSpeed, Math.max(0, speed));
-  } else {
-    if (Math.abs(speed) < 0.25 && wArmed && pressingW) {
       gear = "D";
-      wArmed = false;
       sArmed = false;
+      wArmed = false;
+    } else {
       speed = 0;
+      kmhDisplay = 0;
+      gear = "D";
+      sArmed = false;
+      wArmed = false;
     }
-    if (pressingS) speed = Math.min(0, speed) - engineAccel * dt;
-    else if (pressingW) speed = -Math.max(0, Math.max(0, -speed) - brakeDecel * dt);
-    else speed = -Math.max(0, Math.max(0, -speed) - rollDecel * dt);
-    speed = Math.max(-reverseMax, Math.min(0, speed));
-  }
+  } else {
+    // ======= NORMAL DRIVE =======
+    const maxSpeed = (VMAX_KMH / 3.6) * SPEED_FEEL_SCALE;
+    const reverseMax = 9.5;
+    const engineAccel = (27.78 * SPEED_FEEL_SCALE) / 4.0;
+    const brakeDecel = 24.0;
+    const rollDecel = 2.0;
+    const dragK = 0.0013;
 
-  const vAbs = Math.abs(speed);
-  if (vAbs > 0.01) {
-    const drag = dragK * vAbs * vAbs;
-    const nv = Math.max(0, vAbs - drag * dt);
-    speed = Math.sign(speed) * nv;
+    const pressingW = !!keys["KeyW"];
+    const pressingS = !!keys["KeyS"];
+    const noPedals = !pressingW && !pressingS;
+
     if (noPedals && Math.abs(speed) < 0.25) speed = 0;
+
+    if (Math.abs(speed) < 0.25) {
+      if (!pressingS) sArmed = true;
+      if (!pressingW) wArmed = true;
+    } else {
+      sArmed = false;
+      wArmed = false;
+    }
+
+    if (gear === "D") {
+      if (Math.abs(speed) < 0.25 && sArmed && pressingS) {
+        gear = "R";
+        sArmed = false;
+        wArmed = false;
+        speed = 0;
+      }
+      if (pressingW) speed = Math.max(0, speed) + engineAccel * dt;
+      else if (pressingS) speed = Math.max(0, Math.max(0, speed) - brakeDecel * dt);
+      else speed = Math.max(0, Math.max(0, speed) - rollDecel * dt);
+      speed = Math.min(maxSpeed, Math.max(0, speed));
+    } else {
+      if (Math.abs(speed) < 0.25 && wArmed && pressingW) {
+        gear = "D";
+        wArmed = false;
+        sArmed = false;
+        speed = 0;
+      }
+      if (pressingS) speed = Math.min(0, speed) - engineAccel * dt;
+      else if (pressingW) speed = -Math.max(0, Math.max(0, -speed) - brakeDecel * dt);
+      else speed = -Math.max(0, Math.max(0, -speed) - rollDecel * dt);
+      speed = Math.max(-reverseMax, Math.min(0, speed));
+    }
+
+    const vAbs = Math.abs(speed);
+    if (vAbs > 0.01) {
+      const drag = dragK * vAbs * vAbs;
+      const nv = Math.max(0, vAbs - drag * dt);
+      speed = Math.sign(speed) * nv;
+      if (noPedals && Math.abs(speed) < 0.25) speed = 0;
+    }
+
+    kmhDisplay = (Math.abs(speed) / SPEED_FEEL_SCALE) * 3.6;
+
+    if (kmhDisplay > 1.0) {
+      const t = Cesium.Math.clamp(kmhDisplay / VMAX_KMH, 0.0, 1.0);
+      const tMid = Cesium.Math.clamp(kmhDisplay / 60.0, 0.0, 1.0);
+      const steerLow = 1.15;
+      const steerMid = 0.8;
+      const steerHigh = 0.3;
+      const steerA = steerLow + (steerMid - steerLow) * tMid;
+      const steerRate = steerA + (steerHigh - steerA) * t;
+      if (keys["KeyA"]) heading -= steerRate * dt * Math.sign(speed || 1);
+      if (keys["KeyD"]) heading += steerRate * dt * Math.sign(speed || 1);
+    }
+
+    const forwardMeters = speed * dt;
+    const dx = Math.sin(heading) * forwardMeters;
+    const dy = Math.cos(heading) * forwardMeters;
+    carLat += dy / metersPerDegLat;
+    carLon += dx / metersPerDegLon(carLat);
   }
 
-  const kmhDisplay = (Math.abs(speed) / SPEED_FEEL_SCALE) * 3.6;
-
-  if (kmhDisplay > 1.0) {
-    const t = Cesium.Math.clamp(kmhDisplay / VMAX_KMH, 0.0, 1.0);
-    const tMid = Cesium.Math.clamp(kmhDisplay / 60.0, 0.0, 1.0);
-    const steerLow = 1.15;
-    const steerMid = 0.8;
-    const steerHigh = 0.3;
-    const steerA = steerLow + (steerMid - steerLow) * tMid;
-    const steerRate = steerA + (steerHigh - steerA) * t;
-    if (keys["KeyA"]) heading -= steerRate * dt * Math.sign(speed || 1);
-    if (keys["KeyD"]) heading += steerRate * dt * Math.sign(speed || 1);
-  }
-
-  const forwardMeters = speed * dt;
-  const dx = Math.sin(heading) * forwardMeters;
-  const dy = Math.cos(heading) * forwardMeters;
-  carLat += dy / metersPerDegLat;
-  carLon += dx / metersPerDegLon(carLat);
-
+  // ======= HEIGHT =======
   heightTimer += dt;
   if (heightTimer > 0.2) {
     heightTimer = 0;
@@ -1490,7 +1656,7 @@ viewer.scene.postRender.addEventListener(() => {
   );
   car.orientation = Cesium.Transforms.headingPitchRollQuaternion(pos, hpr);
 
-  // ======= CAMERA (unverändert) =======
+  // ======= CAMERA =======
   const tCam = Cesium.Math.clamp(kmhDisplay / VMAX_KMH, 0.0, 1.0);
   const camDistTarget = activeCfg.camRearDistBase + activeCfg.camRearDistAdd * tCam;
   const camHeightTarget = activeCfg.camHeightBase + activeCfg.camHeightAdd * tCam;
@@ -1650,7 +1816,7 @@ viewer.scene.postRender.addEventListener(() => {
     const ent = miniRemoteEntities.get(id);
     ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
     if (ent.label) ent.label.text = playerLabel(rp.cfgKey || "???");
-    if (ent.point) ent.point.color = markerColor(rp.cfgKey); // ✅ falls Auto wechselt
+    if (ent.point) ent.point.color = markerColor(rp.cfgKey);
   }
   for (const [id, ent] of miniRemoteEntities) {
     if (!remotePlayers.has(id)) {
@@ -1691,7 +1857,6 @@ viewer.scene.postRender.addEventListener(() => {
       if (inside) {
         miniNav.destEnt.show = true;
 
-        // ✅ Pfeil zeigt IMMER auf das Ziel (auch ohne Follow), Richtung: Ziel -> Auto (Center)
         const cx = w / 2;
         const cy = h / 2;
         const dx2 = cx - win.x;
@@ -1831,7 +1996,7 @@ viewer.scene.postRender.addEventListener(() => {
         const ent = mapRemoteEntities.get(ck);
         ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
         if (ent.label) ent.label.text = playerLabel(ck);
-        if (ent.point) ent.point.color = markerColor(ck); // ✅ falls Auto wechselt
+        if (ent.point) ent.point.color = markerColor(ck);
       }
     }
 
