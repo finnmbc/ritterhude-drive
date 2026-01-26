@@ -3,8 +3,9 @@
 // =====================================================
 // 1) TOKEN EINTRAGEN:
 // =====================================================
-Cesium.Ion.defaultAccessToken =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxMmQ3Yjg4Yy1kNjM1LTQxNmMtOTY0Ny0zZTQ1Zjc3ZmFmZDkiLCJpZCI6MzgzMTIzLCJpYXQiOjE3NjkzMzAwNjl9.c43M7EsxX_pY7z9RndXbP6y9QiKqR5ST3a7nlT8Tk90";
+// ⚠️ Sicherheits-Tipp: Token besser nicht öffentlich teilen.
+// Hier als Platzhalter – setz deinen Token wieder ein:
+Cesium.Ion.defaultAccessToken = "PASTE_YOUR_CESIUM_ION_TOKEN_HERE";
 
 // alte HUDs entfernen
 document.querySelectorAll(".hud").forEach((el) => el.remove());
@@ -37,7 +38,7 @@ const REWE_HEADING_DEG = 45;
 // =====================================================
 // SPAWNPOINTS (+ eigener Heading pro Spawn)  -> "KLASSENSPAWNS"
 // =====================================================
-const SPAWN1 = { lat: 53.18167657056033, lon: 8.739374157976243, headingDeg: 20 };  // KONA
+const SPAWN1 = { lat: 53.18167657056033, lon: 8.739374157976243, headingDeg: 20 }; // KONA
 const SPAWN2 = { lat: 53.18493709131292, lon: 8.71229577112801, headingDeg: 8.5 }; // BENZ
 const SPAWN3 = { lat: 53.18605835934793, lon: 8.745079683720112, headingDeg: 90 }; // BULLI
 
@@ -156,6 +157,105 @@ window.addEventListener("keydown", (e) => (keys[e.code] = true));
 window.addEventListener("keyup", (e) => (keys[e.code] = false));
 
 // =====================================================
+// ✅ AUDIO: HUPE + RADIO
+// =====================================================
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+// Haversine Entfernung (Meter)
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+// Hupe (Synth, keine Datei)
+function playHorn({ volume = 1.0, durationMs = 180 } = {}) {
+  const ctx = getAudioCtx();
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+
+  const o1 = ctx.createOscillator();
+  const o2 = ctx.createOscillator();
+  const g = ctx.createGain();
+
+  o1.type = "sawtooth";
+  o2.type = "square";
+  o1.frequency.value = 440;
+  o2.frequency.value = 554.37;
+
+  const now = ctx.currentTime;
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), now + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
+
+  o1.connect(g);
+  o2.connect(g);
+  g.connect(ctx.destination);
+
+  o1.start(now);
+  o2.start(now);
+  o1.stop(now + durationMs / 1000 + 0.03);
+  o2.stop(now + durationMs / 1000 + 0.03);
+}
+
+function playHornAt(lat, lon) {
+  if (!joinAccepted) {
+    playHorn({ volume: 0.7 });
+    return;
+  }
+  const d = haversineMeters(carLat, carLon, lat, lon);
+  const vol = Cesium.Math.clamp(1.0 - d / 250.0, 0.0, 1.0);
+  if (vol > 0.02) playHorn({ volume: 0.85 * vol });
+}
+
+function sendHorn() {
+  if (!joinAccepted || !wsOpen) return;
+  ws.send(JSON.stringify({ type: "horn", lat: carLat, lon: carLon }));
+}
+
+// RADIO
+const RADIO_URL =
+  "https://deltaradio.streamabc.net/regc-deltaliveshsued-mp3-192-5217032?sABC=69760sq9%230%2348n65pq574n0265p66ps4so725n56s76%23&aw_0_1st.playerid=&amsparams=playerid:;skey:1769344985";
+
+let radio = null;
+let radioOn = false;
+
+function ensureRadio() {
+  if (radio) return radio;
+  radio = new Audio(RADIO_URL);
+  radio.crossOrigin = "anonymous";
+  radio.volume = 0.25;
+  return radio;
+}
+
+async function toggleRadio() {
+  const r = ensureRadio();
+  try {
+    if (!radioOn) {
+      const p = r.play();
+      if (p?.then) await p;
+      radioOn = true;
+      setMenuHint("Radio: AN");
+    } else {
+      r.pause();
+      radioOn = false;
+      setMenuHint("Radio: AUS");
+    }
+  } catch (err) {
+    console.warn("Radio konnte nicht starten:", err);
+    setMenuHint("Radio blockiert (Autoplay). Drück Q nochmal.", true);
+  }
+}
+
+// =====================================================
 // HELPERS
 // =====================================================
 const metersPerDegLat = 111320;
@@ -204,8 +304,8 @@ function createCarEntity(cfg) {
     position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
     model: {
       uri: cfg.uri,
-      minimumPixelSize: 0,//cfg.minPixel,
-      //maximumScale: cfg.maxScale,
+      minimumPixelSize: 0, // cfg.minPixel,
+      // maximumScale: cfg.maxScale,
       scale: cfg.modelScale,
     },
     box: {
@@ -259,7 +359,6 @@ async function spawnCar({ lat, lon, carKey, headingDeg = REWE_HEADING_DEG, reset
 const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
 const ws = new WebSocket(WS_URL);
 
-
 let wsOpen = false;
 let myId = null;
 
@@ -303,8 +402,8 @@ function createRemoteCarEntity(cfg, lat, lon, h, groundH = 0) {
     position: pos,
     model: {
       uri: cfg.uri,
-      minimumPixelSize: 0,//cfg.minPixel,
-      //maximumScale: cfg.maxScale,
+      minimumPixelSize: 0, // cfg.minPixel,
+      // maximumScale: cfg.maxScale,
       scale: cfg.modelScale,
     },
   });
@@ -390,6 +489,14 @@ ws.addEventListener("message", async (ev) => {
     return;
   }
 
+  // ✅ HUPE von anderen Spielern hören
+  if (msg.type === "horn") {
+    if (msg.id != null && msg.id === myId) return;
+    if (Number.isFinite(msg.lat) && Number.isFinite(msg.lon)) playHornAt(msg.lat, msg.lon);
+    else playHorn({ volume: 0.35 });
+    return;
+  }
+
   if (msg.type === "snapshot") {
     const arr = msg.players || [];
     for (const p of arr) {
@@ -459,8 +566,7 @@ function showCarSelectMenu() {
   title.style.marginBottom = "8px";
 
   const sub = document.createElement("div");
-  sub.textContent =
-    "Wähle eine Klasse. Jede Klasse kann nur einmal vergeben werden.";
+  sub.textContent = "Wähle eine Klasse. Jede Klasse kann nur einmal vergeben werden.";
   sub.style.opacity = "0.85";
   sub.style.marginBottom = "14px";
 
@@ -527,9 +633,9 @@ function showCarSelectMenu() {
   grid.appendChild(makeBtn("Tammo (Bulli)", "BULLI"));
 
   const hint = document.createElement("div");
-  hint.innerHTML =
-    `<div style="margin-top:12px; opacity:.75; font-size:12px;">
-      Steuerung: W/A/S/D • Kamera: Pfeile halten • REWE: <b>R</b>
+  hint.innerHTML = `<div style="margin-top:12px; opacity:.75; font-size:12px;">
+      Steuerung: W/A/S/D • Kamera: Pfeile halten • REWE: <b>R</b> • Hupe: <b>E</b> • Radio: <b>Q</b><br>
+      Navi: Klick in Minimap setzt Ziel • Rechtsklick löscht Ziel
     </div>`;
 
   panel.appendChild(title);
@@ -586,7 +692,7 @@ window.addEventListener("keyup", (e) => {
 });
 
 // =====================================================
-// INPUT: Reset nur über R (REWE)
+// INPUT: Reset / Hupe / Radio
 // =====================================================
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
@@ -601,6 +707,18 @@ window.addEventListener("keydown", (e) => {
       headingDeg: REWE_HEADING_DEG,
       resetCam: true,
     });
+  }
+
+  // E = HUPE (alle hören)
+  if (e.code === "KeyE") {
+    if (!joinAccepted) return;
+    playHorn({ volume: 0.9 });
+    sendHorn();
+  }
+
+  // Q = RADIO an/aus
+  if (e.code === "KeyQ") {
+    toggleRadio();
   }
 });
 
@@ -620,7 +738,7 @@ hudControls.style.letterSpacing = "0.2px";
 hudControls.style.zIndex = "9999";
 hudControls.style.userSelect = "none";
 hudControls.innerHTML =
-  `W = Vorwärts<br>A = Links<br>S = Bremsen/Rückwärts<br>D = Rechts<br>R = REWE<br><br>Ä = Auto-Zoom<br>+/- = Minimap-Zoom<br><br>⬇️ = Vorne<br>⬆️ = Oben<br>⬅️ = Links<br>➡️ = Rechts`;
+  `W = Vorwärts<br>A = Links<br>S = Bremsen/Rückwärts<br>D = Rechts<br>R = REWE<br>E = Hupe<br>Q = Radio<br><br>Ä = Auto-Zoom<br>+/- = Minimap-Zoom<br><br>⬇️ = Vorne<br>⬆️ = Oben<br>⬅️ = Links<br>➡️ = Rechts`;
 document.body.appendChild(hudControls);
 
 const hudSpeed = document.createElement("div");
@@ -639,6 +757,39 @@ hudSpeed.style.userSelect = "none";
 hudSpeed.textContent = "0 km/h  •  D";
 document.body.appendChild(hudSpeed);
 
+// ✅ Player-Liste oben rechts
+const hudPlayers = document.createElement("div");
+hudPlayers.style.position = "absolute";
+hudPlayers.style.right = "14px";
+hudPlayers.style.top = "12px";
+hudPlayers.style.padding = "10px 12px";
+hudPlayers.style.borderRadius = "12px";
+hudPlayers.style.background = "rgba(0,0,0,0.55)";
+hudPlayers.style.color = "white";
+hudPlayers.style.font = "700 13px/1.25 system-ui, Arial";
+hudPlayers.style.letterSpacing = "0.2px";
+hudPlayers.style.zIndex = "9999";
+hudPlayers.style.userSelect = "none";
+hudPlayers.innerHTML = "Spieler: –";
+document.body.appendChild(hudPlayers);
+
+function updatePlayerListHud() {
+  const mine = joinAccepted ? `🟦 Du (${activeCarKey})` : "🟦 Du (nicht verbunden)";
+  const others = [];
+  for (const [id, rp] of remotePlayers) {
+    const carKey = rp.cfgKey || "???";
+    const shortId = String(id).slice(0, 4);
+    others.push(`🟧 ${shortId} (${carKey})`);
+  }
+  const total = (joinAccepted ? 1 : 0) + remotePlayers.size;
+  hudPlayers.innerHTML =
+    `<div style="opacity:.9">Spieler (${total})</div>` +
+    `<div style="margin-top:6px">${mine}</div>` +
+    (others.length
+      ? `<div style="margin-top:6px; opacity:.95">${others.join("<br>")}</div>`
+      : `<div style="margin-top:6px; opacity:.7">keine</div>`);
+}
+
 // =========================
 // MINIMAP
 // =========================
@@ -654,7 +805,8 @@ miniDiv.style.overflow = "hidden";
 miniDiv.style.boxShadow = "0 10px 30px rgba(0,0,0,0.35)";
 miniDiv.style.zIndex = "9998";
 miniDiv.style.border = "1px solid rgba(255,255,255,0.12)";
-miniDiv.style.pointerEvents = "none";
+// ✅ Klickbar für Navi
+miniDiv.style.pointerEvents = "auto";
 document.body.appendChild(miniDiv);
 
 const miniViewer = new Cesium.Viewer("miniMap", {
@@ -740,6 +892,100 @@ window.addEventListener("keydown", (e) => {
     if (!miniAutoZoom) miniManualHeight = miniHeightCur;
   }
 });
+
+// =====================================================
+// ✅ NAVI + MINIMAP PLAYER MARKER
+// =====================================================
+const miniEntities = {
+  me: null,
+  dest: null,
+  route: null,
+};
+const miniRemoteEntities = new Map(); // id -> entity
+let navDest = null; // {lat, lon}
+
+function ensureMiniMe() {
+  if (miniEntities.me) return;
+  miniEntities.me = miniViewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.CYAN,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+      outlineWidth: 2,
+    },
+    label: {
+      text: "DU",
+      font: "800 11px system-ui",
+      pixelOffset: new Cesium.Cartesian2(0, -16),
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+}
+
+function setNavDestination(lat, lon) {
+  navDest = { lat, lon };
+
+  if (miniEntities.dest) miniViewer.entities.remove(miniEntities.dest);
+  if (miniEntities.route) miniViewer.entities.remove(miniEntities.route);
+
+  miniEntities.dest = miniViewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.YELLOW,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+      outlineWidth: 2,
+    },
+    label: {
+      text: "ZIEL",
+      font: "800 12px system-ui",
+      pixelOffset: new Cesium.Cartesian2(0, -18),
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+
+  miniEntities.route = miniViewer.entities.add({
+    polyline: {
+      positions: new Cesium.CallbackProperty(() => {
+        if (!navDest) return [];
+        return [
+          Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
+          Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0),
+        ];
+      }, false),
+      width: 3,
+      material: Cesium.Color.YELLOW.withAlpha(0.9),
+      clampToGround: true,
+    },
+  });
+}
+
+// Klick in Minimap setzt Ziel, Rechtsklick löscht Ziel
+const miniHandler = new Cesium.ScreenSpaceEventHandler(miniViewer.canvas);
+
+miniHandler.setInputAction((movement) => {
+  const p = miniViewer.camera.pickEllipsoid(movement.position, miniViewer.scene.globe.ellipsoid);
+  if (!p) return;
+  const c = Cesium.Cartographic.fromCartesian(p);
+  const lat = Cesium.Math.toDegrees(c.latitude);
+  const lon = Cesium.Math.toDegrees(c.longitude);
+  setNavDestination(lat, lon);
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+miniHandler.setInputAction(() => {
+  navDest = null;
+  if (miniEntities.dest) miniViewer.entities.remove(miniEntities.dest), (miniEntities.dest = null);
+  if (miniEntities.route) miniViewer.entities.remove(miniEntities.route), (miniEntities.route = null);
+}, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 
 // =====================================================
 // DRIVE LOOP + NETWORK SEND + REMOTE SMOOTH
@@ -987,8 +1233,13 @@ viewer.scene.postRender.addEventListener(() => {
     },
   });
 
-  // HUD
-  hudSpeed.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  CAR: ${activeCfg.name}`;
+  // HUD (inkl. Navi Distanz)
+  let navText = "";
+  if (navDest) {
+    const d = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
+    navText = ` • NAV: ${(d / 1000).toFixed(2)} km`;
+  }
+  hudSpeed.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  CAR: ${activeCfg.name}${navText}`;
 
   // =========================
   // NETWORK SEND (10 Hz)
@@ -1032,4 +1283,64 @@ viewer.scene.postRender.addEventListener(() => {
 
     rp.entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(ppos, rhpr);
   }
+
+  // =========================
+  // ✅ MINIMAP: ME + REMOTES
+  // =========================
+  ensureMiniMe();
+  if (miniEntities.me) {
+    miniEntities.me.position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 0);
+  }
+
+  for (const [id, rp] of remotePlayers) {
+    if (!miniRemoteEntities.has(id)) {
+      const shortId = String(id).slice(0, 4);
+      const ent = miniViewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
+        point: {
+          pixelSize: 9,
+          color: Cesium.Color.ORANGE,
+          outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+          outlineWidth: 2,
+        },
+        label: {
+          text: shortId,
+          font: "800 11px system-ui",
+          pixelOffset: new Cesium.Cartesian2(0, -16),
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      miniRemoteEntities.set(id, ent);
+    }
+    const ent = miniRemoteEntities.get(id);
+    ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
+  }
+
+  for (const [id, ent] of miniRemoteEntities) {
+    if (!remotePlayers.has(id)) {
+      miniViewer.entities.remove(ent);
+      miniRemoteEntities.delete(id);
+    }
+  }
+
+  // ✅ Spieler-Liste aktualisieren
+  updatePlayerListHud();
 });
+
+/*
+=====================================================
+SERVER-HINWEIS (damit HUPE wirklich bei allen ankommt)
+=====================================================
+Dein WebSocket-Server muss "horn" weiterleiten.
+Beispiel (Node ws):
+
+if (msg.type === "horn") {
+  const out = JSON.stringify({ type:"horn", id: clientId, lat: msg.lat, lon: msg.lon });
+  wss.clients.forEach(c => { if (c.readyState === 1) c.send(out); });
+}
+
+*/
