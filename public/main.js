@@ -1060,7 +1060,7 @@ function ensureMapOverlay() {
   topbar.appendChild(btnSearch);
   topbar.appendChild(btnSet);
   topbar.appendChild(btnClear);
-  topbar.appendChild(btnCloseX);
+  //topbar.appendChild(btnCloseX);
 
   const body = document.createElement("div");
   body.style.position = "absolute";
@@ -1166,7 +1166,26 @@ function ensureMapOverlay() {
   gpsText.appendChild(gpsLine1);
   gpsText.appendChild(gpsLine2);
 
+  // ✅ X Close Button direkt neben der Checkbox
+  const gpsClose = document.createElement("button");
+  gpsClose.textContent = "✕";
+  gpsClose.title = "Map schließen";
+  gpsClose.style.width = "34px";
+  gpsClose.style.height = "34px";
+  gpsClose.style.display = "grid";
+  gpsClose.style.placeItems = "center";
+  gpsClose.style.borderRadius = "12px";
+  gpsClose.style.border = "1px solid rgba(255,255,255,0.18)";
+  gpsClose.style.background = "rgba(255,255,255,0.10)";
+  gpsClose.style.color = "white";
+  gpsClose.style.cursor = "pointer";
+  gpsClose.style.font = "1000 16px system-ui, Arial";
+  gpsClose.style.marginLeft = "2px";
+  gpsClose.onclick = () => toggleBigMap(false);
+
+  // Reihenfolge: [Checkbox][X][Text]
   gpsLabel.appendChild(gpsCb);
+  gpsLabel.appendChild(gpsClose);
   gpsLabel.appendChild(gpsText);
   gpsBox.appendChild(gpsLabel);
 
