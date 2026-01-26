@@ -282,7 +282,7 @@ function bearingRad(lat1, lon1, lat2, lon2) {
   const Δλ = toRad(lon2 - lon1);
   const y = Math.sin(Δλ) * Math.cos(φ2);
   const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  return Math.atan2(y, x); // -PI..PI (0 = Norden, positiv Richtung Osten)
+  return Math.atan2(y, x);
 }
 
 function startGpsWatch() {
@@ -298,7 +298,6 @@ function startGpsWatch() {
 
       let headingRad = Number.isFinite(hDeg) ? Cesium.Math.toRadians(hDeg) : null;
 
-      // Fallback: Heading aus Bewegung berechnen, wenn Browser keins liefert
       const nextFix = { lat: latitude, lon: longitude, ts: pos.timestamp };
       if (headingRad == null && gpsPrevFix) {
         const moved = haversineMeters(gpsPrevFix.lat, gpsPrevFix.lon, nextFix.lat, nextFix.lon);
@@ -632,14 +631,12 @@ function toggleFollow(carKey) {
   if (!carKey) return;
 
   if (navFollowCarKey === carKey) {
-    // UNFOLLOW
     navFollowCarKey = null;
     if (navDestMode === "follow") {
-      navDest = null; // ✅ Ziel entfernen beim Unfollow
+      navDest = null;
       navDestMode = null;
     }
   } else {
-    // FOLLOW
     navFollowCarKey = carKey;
     navDestMode = "follow";
   }
@@ -819,7 +816,7 @@ hudSpeed.style.userSelect = "none";
 hudSpeed.textContent = "0 km/h";
 document.body.appendChild(hudSpeed);
 
-// ✅ Player-Liste oben rechts (FOLLOW/UNFOLLOW only; ZENTRIEREN hier entfernt)
+// ✅ Player-Liste oben rechts
 const hudPlayers = document.createElement("div");
 hudPlayers.style.position = "absolute";
 hudPlayers.style.right = "14px";
@@ -900,7 +897,7 @@ miniCross.style.boxShadow = "0 0 10px rgba(0,0,0,0.45)";
 miniCross.style.pointerEvents = "none";
 miniDiv.appendChild(miniCross);
 
-// ✅ Minimap Ziel: wenn außerhalb -> Pfeil am Rand; wenn drin -> Zielpunkt (plus grüner Pfeil zeigt auf Auto)
+// ✅ Minimap Ziel: wenn außerhalb -> Pfeil am Rand; wenn drin -> Zielpunkt
 const miniNav = { destEnt: null, arrowEl: null };
 (function initMiniNavArrow() {
   const el = document.createElement("div");
@@ -945,8 +942,7 @@ function isUmlautA(e) {
 }
 
 // =====================================================
-// ✅ GROßE MAP (Buttons sollen 1x reichen → kein UI-Neurender mitten im Klick)
-// + ✅ GPS Checkbox + ✅ X daneben zum Schließen
+// ✅ GROßE MAP (GPS Mode unter Spieler + X zum Schließen)
 // =====================================================
 let mapOverlay = null;
 let mapViewer = null;
@@ -956,7 +952,6 @@ let mapSearchInput = null;
 const mapEntities = { me: null, dest: null };
 const mapRemoteEntities = new Map(); // carKey -> entity
 
-// ✅ NEU: BigMap-Zentrier-Follow (Kreis läuft mit, weil Kamera ständig zentriert bleibt)
 let bigMapCenterFollowKey = null;
 
 function centerBigMapOn(lat, lon, height = 1400) {
@@ -1044,39 +1039,7 @@ function ensureMapOverlay() {
   const btnSet = mkBtn("Ziel hier (Mitte)", true);
   const btnClear = mkBtn("Ziel löschen");
 
-  // ✅ GPS Checkbox
-  const gpsWrap = document.createElement("div");
-  gpsWrap.style.display = "flex";
-  gpsWrap.style.gap = "8px";
-  gpsWrap.style.alignItems = "center";
-
-  const gpsLabel = document.createElement("label");
-  gpsLabel.style.display = "flex";
-  gpsLabel.style.alignItems = "center";
-  gpsLabel.style.gap = "8px";
-  gpsLabel.style.padding = "8px 10px";
-  gpsLabel.style.borderRadius = "12px";
-  gpsLabel.style.border = "1px solid rgba(255,255,255,0.18)";
-  gpsLabel.style.background = "rgba(255,255,255,0.08)";
-  gpsLabel.style.cursor = "pointer";
-  gpsLabel.style.userSelect = "none";
-  gpsLabel.title = "Wenn aktiv, kommt deine Position vom Geräte-GPS statt von W/A/S/D.";
-
-  const gpsCb = document.createElement("input");
-  gpsCb.type = "checkbox";
-  gpsCb.checked = gpsMode;
-  gpsCb.style.transform = "scale(1.1)";
-  gpsCb.onchange = () => setGpsMode(gpsCb.checked);
-
-  const gpsText = document.createElement("span");
-  gpsText.textContent = "GPS Mode";
-  gpsText.style.font = "900 13px system-ui, Arial";
-  gpsText.style.opacity = "0.95";
-
-  gpsLabel.appendChild(gpsCb);
-  gpsLabel.appendChild(gpsText);
-
-  // ✅ X Close Button direkt daneben
+  // ✅ X Close Button in der M Map (Topbar rechts)
   const btnCloseX = document.createElement("button");
   btnCloseX.textContent = "✕";
   btnCloseX.title = "Schließen";
@@ -1092,20 +1055,12 @@ function ensureMapOverlay() {
   btnCloseX.style.font = "1000 18px system-ui, Arial";
   btnCloseX.onclick = () => toggleBigMap(false);
 
-  gpsWrap.appendChild(gpsLabel);
-  gpsWrap.appendChild(btnCloseX);
-
   topbar.appendChild(title);
   topbar.appendChild(input);
   topbar.appendChild(btnSearch);
   topbar.appendChild(btnSet);
   topbar.appendChild(btnClear);
-  topbar.appendChild(gpsWrap);
-
-  // Checkbox sync beim Öffnen
-  mapOverlay.__syncGpsCheckbox = () => {
-    gpsCb.checked = gpsMode;
-  };
+  topbar.appendChild(btnCloseX);
 
   const body = document.createElement("div");
   body.style.position = "absolute";
@@ -1170,8 +1125,54 @@ function ensureMapOverlay() {
   sideList.style.display = "grid";
   sideList.style.gap = "8px";
 
+  // ✅ GPS Mode DIREKT UNTER den Spielern
+  const gpsBox = document.createElement("div");
+  gpsBox.style.marginTop = "12px";
+  gpsBox.style.paddingTop = "12px";
+  gpsBox.style.borderTop = "1px solid rgba(255,255,255,0.12)";
+
+  const gpsLabel = document.createElement("label");
+  gpsLabel.style.display = "flex";
+  gpsLabel.style.alignItems = "center";
+  gpsLabel.style.gap = "10px";
+  gpsLabel.style.padding = "10px 12px";
+  gpsLabel.style.borderRadius = "14px";
+  gpsLabel.style.border = "1px solid rgba(255,255,255,0.18)";
+  gpsLabel.style.background = "rgba(255,255,255,0.08)";
+  gpsLabel.style.cursor = "pointer";
+  gpsLabel.style.userSelect = "none";
+  gpsLabel.title = "Wenn aktiv, kommt deine Position vom Geräte-GPS statt von W/A/S/D.";
+
+  const gpsCb = document.createElement("input");
+  gpsCb.type = "checkbox";
+  gpsCb.checked = gpsMode;
+  gpsCb.style.transform = "scale(1.1)";
+  gpsCb.onchange = () => setGpsMode(gpsCb.checked);
+
+  const gpsText = document.createElement("div");
+  gpsText.style.display = "grid";
+  gpsText.style.gap = "2px";
+
+  const gpsLine1 = document.createElement("div");
+  gpsLine1.textContent = "GPS Mode";
+  gpsLine1.style.font = "950 13px system-ui, Arial";
+  gpsLine1.style.opacity = "0.98";
+
+  const gpsLine2 = document.createElement("div");
+  gpsLine2.textContent = "AN = Position vom Gerät (W/A/S/D bewegt nicht)";
+  gpsLine2.style.font = "700 11px system-ui, Arial";
+  gpsLine2.style.opacity = "0.72";
+
+  gpsText.appendChild(gpsLine1);
+  gpsText.appendChild(gpsLine2);
+
+  gpsLabel.appendChild(gpsCb);
+  gpsLabel.appendChild(gpsText);
+  gpsBox.appendChild(gpsLabel);
+
   side.appendChild(sideTitle);
   side.appendChild(sideList);
+  side.appendChild(gpsBox);
 
   body.appendChild(mapWrap);
   body.appendChild(side);
@@ -1180,6 +1181,11 @@ function ensureMapOverlay() {
   panel.appendChild(body);
   mapOverlay.appendChild(panel);
   document.body.appendChild(mapOverlay);
+
+  // Checkbox sync beim Öffnen
+  mapOverlay.__syncGpsCheckbox = () => {
+    gpsCb.checked = gpsMode;
+  };
 
   mapViewer = new Cesium.Viewer("bigMapCesium", {
     terrain: Cesium.Terrain.fromWorldTerrain(),
@@ -1210,7 +1216,7 @@ function ensureMapOverlay() {
     ctrl.translateEventTypes = [Cesium.CameraEventType.LEFT_DRAG];
   }
 
-  // ✅ Fix: sobald User die BigMap bewegt/zoomt -> Center-Follow AUS (damit man nicht stuck ist)
+  // ✅ Sobald User die BigMap bewegt/zoomt -> Center-Follow AUS
   const stopCenterFollow = () => {
     if (bigMapCenterFollowKey) bigMapCenterFollowKey = null;
   };
@@ -1264,7 +1270,6 @@ function ensureMapOverlay() {
       btnCenter.style.cursor = "pointer";
       btnCenter.style.font = "900 12px system-ui, Arial";
       btnCenter.onclick = () => {
-        // ✅ NEU: Kamera-Follow fürs Zentrieren aktivieren
         bigMapCenterFollowKey = isMe ? activeCarKey : carKey;
         centerBigMapOnCarKey(bigMapCenterFollowKey);
       };
@@ -1383,7 +1388,7 @@ function toggleBigMap(force) {
   ensureMapOverlay();
   const show = typeof force === "boolean" ? force : mapOverlay.style.display === "none";
   mapOverlay.style.display = show ? "block" : "none";
-  if (!show) bigMapCenterFollowKey = null; // ✅ beim Schließen kein stuck-center
+  if (!show) bigMapCenterFollowKey = null;
 
   if (show) {
     if (mapOverlay?.__syncGpsCheckbox) mapOverlay.__syncGpsCheckbox();
@@ -1420,7 +1425,7 @@ window.addEventListener("keydown", (e) => {
 
   if (e.code === "KeyR") {
     if (!joinAccepted) return;
-    if (!isStopped()) return; // ✅ nur im Stand
+    if (!isStopped()) return;
     spawnCar({ lat: startLat, lon: startLon, carKey: activeCarKey, headingDeg: REWE_HEADING_DEG, resetCam: true });
   }
 
@@ -1447,7 +1452,7 @@ window.addEventListener("keydown", (e) => {
 });
 
 // =====================================================
-// ✅ HUD Playerlist (nur FOLLOW/UNFOLLOW; synced mit M-Map)
+// ✅ HUD Playerlist (FOLLOW/UNFOLLOW)
 // =====================================================
 function updatePlayerListHud() {
   const total = (joinAccepted ? 1 : 0) + remotePlayers.size;
@@ -1521,8 +1526,6 @@ function ensureMiniMe() {
 // =====================================================
 let lastTime = performance.now();
 let netTimer = 0;
-
-// ✅ UI throttles (Buttons bleiben klickbar)
 let uiTimer = 0;
 
 function sendMyState() {
@@ -1541,7 +1544,6 @@ viewer.scene.postRender.addEventListener(() => {
   let kmhDisplay = 0;
 
   if (gpsMode) {
-    // Position kommt vom GPS — nicht mehr aus W/A/S/D
     if (gpsFix && Number.isFinite(gpsFix.lat) && Number.isFinite(gpsFix.lon)) {
       carLat = gpsFix.lat;
       carLon = gpsFix.lon;
@@ -1563,7 +1565,6 @@ viewer.scene.postRender.addEventListener(() => {
       wArmed = false;
     }
   } else {
-    // ======= NORMAL DRIVE =======
     const maxSpeed = (VMAX_KMH / 3.6) * SPEED_FEEL_SCALE;
     const reverseMax = 9.5;
     const engineAccel = (27.78 * SPEED_FEEL_SCALE) / 4.0;
@@ -1764,7 +1765,7 @@ viewer.scene.postRender.addEventListener(() => {
     rp.entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(ppos, rhpr);
   }
 
-  // ✅ FOLLOW: Ziel = Spielerposition (automatisch) + wenn Follow weg -> Ziel weg
+  // ✅ FOLLOW
   if (navFollowCarKey) {
     const rp = [...remotePlayers.values()].find((x) => x.cfgKey === navFollowCarKey);
     if (rp) {
@@ -1780,7 +1781,7 @@ viewer.scene.postRender.addEventListener(() => {
     }
   }
 
-  // ✅ Wenn innerhalb 0.1km -> Ziel löschen (wie "angekommen")
+  // ✅ Ziel löschen bei Ankunft
   if (navDest && Number.isFinite(navDest.lat) && Number.isFinite(navDest.lon)) {
     const dArr = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
     if (dArr <= 100) {
@@ -1826,94 +1827,8 @@ viewer.scene.postRender.addEventListener(() => {
     }
   }
 
-  // ✅ MINIMAP: Zielpunkt anzeigen wenn drin, sonst Pfeil am Rand in Richtung Ziel
-  if (navDest && Number.isFinite(navDest.lat) && Number.isFinite(navDest.lon)) {
-    if (!miniNav.destEnt) {
-      miniNav.destEnt = miniViewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0),
-        point: {
-          pixelSize: 10,
-          color: Cesium.Color.YELLOW,
-          outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
-          outlineWidth: 2,
-        },
-      });
-    }
-
-    const destCart = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
-    miniNav.destEnt.position = destCart;
-    if (miniNav.destEnt.point) {
-      miniNav.destEnt.point.color = navFollowCarKey ? Cesium.Color.LIME : Cesium.Color.YELLOW;
-    }
-
-    const win = Cesium.SceneTransforms.wgs84ToWindowCoordinates(miniViewer.scene, destCart);
-    const w = miniDiv.clientWidth;
-    const h = miniDiv.clientHeight;
-
-    if (win && Number.isFinite(win.x) && Number.isFinite(win.y)) {
-      const margin = 8;
-      const inside = win.x >= margin && win.x <= w - margin && win.y >= margin && win.y <= h - margin;
-
-      if (inside) {
-        miniNav.destEnt.show = true;
-
-        const cx = w / 2;
-        const cy = h / 2;
-        const dx2 = cx - win.x;
-        const dy2 = cy - win.y;
-        const ang = Math.atan2(dy2, dx2) + Math.PI / 2;
-
-        if (miniNav.arrowEl) {
-          miniNav.arrowEl.style.display = "block";
-          miniNav.arrowEl.style.left = `${win.x}px`;
-          miniNav.arrowEl.style.top = `${win.y}px`;
-          miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${ang}rad)`;
-          miniNav.arrowEl.style.borderBottomColor = navFollowCarKey
-            ? "rgba(180,255,180,0.95)"
-            : "rgba(255,255,255,0.95)";
-        }
-      } else {
-        miniNav.destEnt.show = false;
-
-        const cx = w / 2;
-        const cy = h / 2;
-        const dx2 = win.x - cx;
-        const dy2 = win.y - cy;
-
-        const maxX = w / 2 - 14;
-        const maxY = h / 2 - 14;
-
-        const ax = Math.abs(dx2) < 1e-6 ? 1e-6 : Math.abs(dx2);
-        const ay = Math.abs(dy2) < 1e-6 ? 1e-6 : Math.abs(dy2);
-
-        const tEdge = Math.min(maxX / ax, maxY / ay);
-        const px = cx + dx2 * tEdge;
-        const py = cy + dy2 * tEdge;
-
-        const ang = Math.atan2(dy2, dx2) + Math.PI / 2;
-
-        if (miniNav.arrowEl) {
-          miniNav.arrowEl.style.display = "block";
-          miniNav.arrowEl.style.left = `${px}px`;
-          miniNav.arrowEl.style.top = `${py}px`;
-          miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${ang}rad)`;
-          miniNav.arrowEl.style.borderBottomColor = navFollowCarKey
-            ? "rgba(180,255,180,0.95)"
-            : "rgba(255,255,255,0.95)";
-        }
-      }
-    } else {
-      miniNav.destEnt.show = false;
-      if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
-    }
-  } else {
-    if (miniNav.destEnt) miniNav.destEnt.show = false;
-    if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
-  }
-
-  // ✅ BIG MAP: andere Spieler auf der Karte anzeigen (und Ziel, falls vorhanden)
+  // ✅ BIG MAP live entities
   if (isMapOpen() && mapViewer) {
-    // ✅ NEU: wenn zentriert wurde -> Kamera folgt dem Auto (damit der Kreis "mitläuft")
     if (bigMapCenterFollowKey) {
       let lat = null;
       let lon = null;
@@ -1943,12 +1858,7 @@ viewer.scene.postRender.addEventListener(() => {
     if (!mapEntities.me) {
       mapEntities.me = mapViewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
-        point: {
-          pixelSize: 10,
-          color: Cesium.Color.CYAN,
-          outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
-          outlineWidth: 2,
-        },
+        point: { pixelSize: 10, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
         label: {
           text: `${playerLabel(activeCarKey)} (DU)`,
           font: "800 12px system-ui",
@@ -1974,12 +1884,7 @@ viewer.scene.postRender.addEventListener(() => {
       if (!mapRemoteEntities.has(ck)) {
         const ent = mapViewer.entities.add({
           position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
-          point: {
-            pixelSize: 10,
-            color: markerColor(ck),
-            outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
-            outlineWidth: 2,
-          },
+          point: { pixelSize: 10, color: markerColor(ck), outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
           label: {
             text: playerLabel(ck),
             font: "800 12px system-ui",
