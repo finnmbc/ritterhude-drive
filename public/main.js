@@ -862,6 +862,9 @@ let mapSearchInput = null;
 const mapEntities = { me: null, dest: null };
 const mapRemoteEntities = new Map(); // carKey -> entity
 
+// ✅ NEU: BigMap-Zentrier-Follow (Kreis läuft mit, weil Kamera ständig zentriert bleibt)
+let bigMapCenterFollowKey = null;
+
 function centerBigMapOn(lat, lon, height = 1400) {
   if (!mapViewer) return;
   mapViewer.camera.flyTo({
@@ -1053,9 +1056,9 @@ function ensureMapOverlay() {
   ctrl.enableZoom = true;
   ctrl.enableTranslate = true;
 
-  // ✅ Linke Maustaste ziehen = verschieben
+  // ✅ Fix: Linksklick gedrückt halten = ziehen/pannen
   if (ctrl.translateEventTypes && Cesium.CameraEventType) {
-    ctrl.translateEventTypes = Cesium.CameraEventType.LEFT_DRAG;
+    ctrl.translateEventTypes = [Cesium.CameraEventType.LEFT_DRAG];
   }
 
   (async () => {
@@ -1101,7 +1104,9 @@ function ensureMapOverlay() {
       btnCenter.style.cursor = "pointer";
       btnCenter.style.font = "900 12px system-ui, Arial";
       btnCenter.onclick = () => {
-        centerBigMapOnCarKey(isMe ? activeCarKey : carKey);
+        // ✅ NEU: Kamera-Follow fürs Zentrieren aktivieren
+        bigMapCenterFollowKey = isMe ? activeCarKey : carKey;
+        centerBigMapOnCarKey(bigMapCenterFollowKey);
       };
 
       const btnFollow = document.createElement("button");
@@ -1117,7 +1122,7 @@ function ensureMapOverlay() {
       btnFollow.style.font = "950 12px system-ui, Arial";
       btnFollow.disabled = isMe;
       btnFollow.onclick = () => {
-        toggleFollow(carKey); // ✅ synced mit playerlist
+        toggleFollow(carKey);
         if (navFollowCarKey) mapMsg.textContent = `FOLLOW: ${playerLabel(navFollowCarKey)}`;
         else mapMsg.textContent = "FOLLOW aus.";
       };
@@ -1167,6 +1172,7 @@ function ensureMapOverlay() {
         mapMsg.textContent = "Nichts gefunden. Andere Schreibweise probieren.";
         return;
       }
+      // (unchanged)
       centerBigMapOn(hit.lat, hit.lon, 1800);
       mapMsg.textContent = "Gefunden. Ziehen/Zoomen und „Ziel hier“ drücken.";
     } catch (e) {
@@ -1177,7 +1183,6 @@ function ensureMapOverlay() {
 
   btnSearch.onclick = doSearch;
 
-  // ✅ ESC in Eingabe: blur (Map bleibt offen)
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") doSearch();
     if (e.key === "Escape") {
@@ -1322,7 +1327,7 @@ function updatePlayerListHud() {
     btn.onclick = () => {
       const ck = btn.getAttribute("data-follow");
       if (!ck) return;
-      toggleFollow(ck); // ✅ 1x reicht + synced
+      toggleFollow(ck);
     };
   });
 }
@@ -1383,9 +1388,9 @@ viewer.scene.postRender.addEventListener(() => {
   const pressingS = !!keys["KeyS"];
   const noPedals = !pressingW && !pressingS;
 
-  if (noPedals && isStopped()) speed = 0;
+  if (noPedals && Math.abs(speed) < 0.25) speed = 0;
 
-  if (isStopped()) {
+  if (Math.abs(speed) < 0.25) {
     if (!pressingS) sArmed = true;
     if (!pressingW) wArmed = true;
   } else {
@@ -1394,7 +1399,7 @@ viewer.scene.postRender.addEventListener(() => {
   }
 
   if (gear === "D") {
-    if (isStopped() && sArmed && pressingS) {
+    if (Math.abs(speed) < 0.25 && sArmed && pressingS) {
       gear = "R";
       sArmed = false;
       wArmed = false;
@@ -1405,7 +1410,7 @@ viewer.scene.postRender.addEventListener(() => {
     else speed = Math.max(0, Math.max(0, speed) - rollDecel * dt);
     speed = Math.min(maxSpeed, Math.max(0, speed));
   } else {
-    if (isStopped() && wArmed && pressingW) {
+    if (Math.abs(speed) < 0.25 && wArmed && pressingW) {
       gear = "D";
       wArmed = false;
       sArmed = false;
@@ -1422,7 +1427,7 @@ viewer.scene.postRender.addEventListener(() => {
     const drag = dragK * vAbs * vAbs;
     const nv = Math.max(0, vAbs - drag * dt);
     speed = Math.sign(speed) * nv;
-    if (noPedals && isStopped()) speed = 0;
+    if (noPedals && Math.abs(speed) < 0.25) speed = 0;
   }
 
   const kmhDisplay = (Math.abs(speed) / SPEED_FEEL_SCALE) * 3.6;
@@ -1660,11 +1665,9 @@ viewer.scene.postRender.addEventListener(() => {
       const inside = win.x >= margin && win.x <= w - margin && win.y >= margin && win.y <= h - margin;
 
       if (inside) {
-        // ✅ Ziel ist im Sichtfeld
         miniNav.destEnt.show = true;
 
         if (navFollowCarKey) {
-          // ✅ grüner Pfeil auf das Auto (Center) zeigen lassen
           const cx = w / 2;
           const cy = h / 2;
           const dx2 = cx - win.x;
@@ -1682,7 +1685,6 @@ viewer.scene.postRender.addEventListener(() => {
           if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
         }
       } else {
-        // ✅ Ziel ist außerhalb -> Randpfeil Richtung Ziel
         miniNav.destEnt.show = false;
 
         const cx = w / 2;
@@ -1723,6 +1725,33 @@ viewer.scene.postRender.addEventListener(() => {
 
   // ✅ BIG MAP: andere Spieler auf der Karte anzeigen (und Ziel, falls vorhanden)
   if (isMapOpen() && mapViewer) {
+    // ✅ NEU: wenn zentriert wurde -> Kamera folgt dem Auto (damit der Kreis "mitläuft")
+    if (bigMapCenterFollowKey) {
+      let lat = null;
+      let lon = null;
+
+      if (bigMapCenterFollowKey === activeCarKey) {
+        lat = carLat;
+        lon = carLon;
+      } else {
+        const rp = [...remotePlayers.values()].find((x) => x.cfgKey === bigMapCenterFollowKey);
+        if (rp) {
+          lat = rp.curLat;
+          lon = rp.curLon;
+        }
+      }
+
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        const cam = mapViewer.camera;
+        const cart = Cesium.Cartographic.fromCartesian(cam.position);
+        const hCam = cart?.height ?? 1400;
+        mapViewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(lon, lat, hCam),
+          orientation: { heading: cam.heading, pitch: cam.pitch, roll: cam.roll },
+        });
+      }
+    }
+
     if (!mapEntities.me) {
       mapEntities.me = mapViewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
