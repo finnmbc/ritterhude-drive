@@ -465,7 +465,13 @@ ws.addEventListener("message", async (ev) => {
 
     if (navFollowCarKey) {
       const still = [...remotePlayers.values()].some((x) => x.cfgKey === navFollowCarKey);
-      if (!still) navFollowCarKey = null;
+      if (!still) {
+        navFollowCarKey = null;
+        if (navDestMode === "follow") {
+          navDest = null;
+          navDestMode = null;
+        }
+      }
     }
     return;
   }
@@ -513,23 +519,39 @@ ws.addEventListener("message", async (ev) => {
 });
 
 // =====================================================
-// ✅ NAVI / FOLLOW (Toggle = UNFOLLOW)
+// ✅ NAVI / FOLLOW (Toggle = UNFOLLOW) + Ziel löschen wenn UNFOLLOW (nur Follow-Ziel)
 // =====================================================
 let navDest = null;
 let navFollowCarKey = null;
+let navDestMode = null; // "manual" | "follow" | null
 
 function clearNav() {
   navDest = null;
   navFollowCarKey = null;
+  navDestMode = null;
 }
 function setNavDestination(lat, lon) {
   navFollowCarKey = null;
   navDest = { lat, lon };
+  navDestMode = "manual";
 }
 function toggleFollow(carKey) {
   if (!carKey) return;
-  navFollowCarKey = navFollowCarKey === carKey ? null : carKey;
-  playersDirtyForUi = true; // ✅ sofort UI updaten (ohne mehrfach klicken)
+
+  if (navFollowCarKey === carKey) {
+    // UNFOLLOW
+    navFollowCarKey = null;
+    if (navDestMode === "follow") {
+      navDest = null; // ✅ Ziel entfernen beim Unfollow
+      navDestMode = null;
+    }
+  } else {
+    // FOLLOW
+    navFollowCarKey = carKey;
+    navDestMode = "follow";
+  }
+
+  playersDirtyForUi = true;
 }
 
 // =====================================================
@@ -785,6 +807,26 @@ miniCross.style.boxShadow = "0 0 10px rgba(0,0,0,0.45)";
 miniCross.style.pointerEvents = "none";
 miniDiv.appendChild(miniCross);
 
+// ✅ Minimap Ziel: wenn außerhalb -> Pfeil am Rand; wenn drin -> Zielpunkt
+const miniNav = { destEnt: null, arrowEl: null };
+(function initMiniNavArrow() {
+  const el = document.createElement("div");
+  el.style.position = "absolute";
+  el.style.left = "50%";
+  el.style.top = "50%";
+  el.style.width = "0";
+  el.style.height = "0";
+  el.style.borderLeft = "8px solid transparent";
+  el.style.borderRight = "8px solid transparent";
+  el.style.borderBottom = "14px solid rgba(255,255,255,0.95)";
+  el.style.filter = "drop-shadow(0 2px 6px rgba(0,0,0,0.55))";
+  el.style.transform = "translate(-50%,-50%) rotate(0rad)";
+  el.style.pointerEvents = "none";
+  el.style.display = "none";
+  miniDiv.appendChild(el);
+  miniNav.arrowEl = el;
+})();
+
 miniDiv.addEventListener("click", (e) => {
   e.preventDefault();
   if (isTyping()) return;
@@ -1023,8 +1065,6 @@ function ensureMapOverlay() {
     }
   })();
 
-  // ✅ Button-Clicks sollen IMMER sofort wirken (kein Frame-UI-Overwrite):
-  // → wir rendern die Sidebar-Playerliste NUR wenn playersDirtyForUi=true.
   function refreshBigMapPlayers() {
     const list = document.getElementById("bigMapPlayersList");
     if (!list) return;
@@ -1057,7 +1097,6 @@ function ensureMapOverlay() {
       btnCenter.style.font = "900 12px system-ui, Arial";
       btnCenter.onclick = () => {
         centerBigMapOnCarKey(isMe ? activeCarKey : carKey);
-        // ✅ kein Re-Render nötig
       };
 
       const btnFollow = document.createElement("button");
@@ -1073,10 +1112,9 @@ function ensureMapOverlay() {
       btnFollow.style.font = "950 12px system-ui, Arial";
       btnFollow.disabled = isMe;
       btnFollow.onclick = () => {
-        toggleFollow(carKey);
+        toggleFollow(carKey); // ✅ synced mit playerlist
         if (navFollowCarKey) mapMsg.textContent = `FOLLOW: ${playerLabel(navFollowCarKey)}`;
         else mapMsg.textContent = "FOLLOW aus.";
-        playersDirtyForUi = true; // ✅ Sidebar einmal aktualisieren
       };
 
       row.appendChild(left);
@@ -1238,7 +1276,7 @@ window.addEventListener("keydown", (e) => {
 });
 
 // =====================================================
-// ✅ HUD Playerlist (nur FOLLOW/UNFOLLOW; kein ZENTRIEREN; kein extra UNFOLLOW oben)
+// ✅ HUD Playerlist (nur FOLLOW/UNFOLLOW; synced mit M-Map)
 // =====================================================
 function updatePlayerListHud() {
   const total = (joinAccepted ? 1 : 0) + remotePlayers.size;
@@ -1279,7 +1317,7 @@ function updatePlayerListHud() {
     btn.onclick = () => {
       const ck = btn.getAttribute("data-follow");
       if (!ck) return;
-      toggleFollow(ck); // ✅ 1x reicht
+      toggleFollow(ck); // ✅ 1x reicht + synced
     };
   });
 }
@@ -1527,11 +1565,20 @@ viewer.scene.postRender.addEventListener(() => {
     rp.entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(ppos, rhpr);
   }
 
-  // ✅ FOLLOW: Ziel = Spielerposition (automatisch)
+  // ✅ FOLLOW: Ziel = Spielerposition (automatisch) + wenn Follow weg -> Ziel weg
   if (navFollowCarKey) {
     const rp = [...remotePlayers.values()].find((x) => x.cfgKey === navFollowCarKey);
-    if (rp) navDest = { lat: rp.curLat, lon: rp.curLon };
-    else navFollowCarKey = null;
+    if (rp) {
+      navDest = { lat: rp.curLat, lon: rp.curLon };
+      navDestMode = "follow";
+    } else {
+      navFollowCarKey = null;
+      if (navDestMode === "follow") {
+        navDest = null;
+        navDestMode = null;
+      }
+      playersDirtyForUi = true;
+    }
   }
 
   // ======= MINIMAP MARKERS =======
@@ -1567,6 +1614,175 @@ viewer.scene.postRender.addEventListener(() => {
       miniViewer.entities.remove(ent);
       miniRemoteEntities.delete(id);
       playersDirtyForUi = true;
+    }
+  }
+
+  // ✅ MINIMAP: Zielpunkt anzeigen wenn drin, sonst Pfeil am Rand in Richtung Ziel
+  if (navDest && Number.isFinite(navDest.lat) && Number.isFinite(navDest.lon)) {
+    if (!miniNav.destEnt) {
+      miniNav.destEnt = miniViewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0),
+        point: {
+          pixelSize: 10,
+          color: Cesium.Color.YELLOW,
+          outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+          outlineWidth: 2,
+        },
+      });
+    }
+
+    const destCart = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
+    miniNav.destEnt.position = destCart;
+    if (miniNav.destEnt.point) {
+      miniNav.destEnt.point.color = navFollowCarKey ? Cesium.Color.LIME : Cesium.Color.YELLOW;
+    }
+
+    const win = Cesium.SceneTransforms.wgs84ToWindowCoordinates(miniViewer.scene, destCart);
+    const w = miniDiv.clientWidth;
+    const h = miniDiv.clientHeight;
+
+    if (win && Number.isFinite(win.x) && Number.isFinite(win.y)) {
+      const margin = 8;
+      const inside = win.x >= margin && win.x <= w - margin && win.y >= margin && win.y <= h - margin;
+
+      if (inside) {
+        miniNav.destEnt.show = true;
+        if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
+      } else {
+        miniNav.destEnt.show = false;
+
+        const cx = w / 2;
+        const cy = h / 2;
+        const dx2 = win.x - cx;
+        const dy2 = win.y - cy;
+
+        const maxX = w / 2 - 14;
+        const maxY = h / 2 - 14;
+
+        const ax = Math.abs(dx2) < 1e-6 ? 1e-6 : Math.abs(dx2);
+        const ay = Math.abs(dy2) < 1e-6 ? 1e-6 : Math.abs(dy2);
+
+        const tEdge = Math.min(maxX / ax, maxY / ay);
+        const px = cx + dx2 * tEdge;
+        const py = cy + dy2 * tEdge;
+
+        const ang = Math.atan2(dy2, dx2) + Math.PI / 2;
+
+        if (miniNav.arrowEl) {
+          miniNav.arrowEl.style.display = "block";
+          miniNav.arrowEl.style.left = `${px}px`;
+          miniNav.arrowEl.style.top = `${py}px`;
+          miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${ang}rad)`;
+          // Farbe passend zu Follow/Manual
+          miniNav.arrowEl.style.borderBottomColor = navFollowCarKey
+            ? "rgba(180,255,180,0.95)"
+            : "rgba(255,255,255,0.95)";
+        }
+      }
+    } else {
+      miniNav.destEnt.show = false;
+      if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
+    }
+  } else {
+    if (miniNav.destEnt) miniNav.destEnt.show = false;
+    if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
+  }
+
+  // ✅ BIG MAP: andere Spieler auf der Karte anzeigen (und Ziel, falls vorhanden)
+  if (isMapOpen() && mapViewer) {
+    if (!mapEntities.me) {
+      mapEntities.me = mapViewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
+        point: {
+          pixelSize: 10,
+          color: Cesium.Color.CYAN,
+          outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+          outlineWidth: 2,
+        },
+        label: {
+          text: `${playerLabel(activeCarKey)} (DU)`,
+          font: "800 12px system-ui",
+          pixelOffset: new Cesium.Cartesian2(0, -18),
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        },
+      });
+    } else {
+      mapEntities.me.position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 0);
+      if (mapEntities.me.label) mapEntities.me.label.text = `${playerLabel(activeCarKey)} (DU)`;
+    }
+
+    const alive = new Set();
+    for (const [, rp] of remotePlayers) {
+      const ck = rp.cfgKey;
+      if (!ck) continue;
+      alive.add(ck);
+
+      if (!mapRemoteEntities.has(ck)) {
+        const ent = mapViewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
+          point: {
+            pixelSize: 10,
+            color: Cesium.Color.ORANGE,
+            outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+            outlineWidth: 2,
+          },
+          label: {
+            text: playerLabel(ck),
+            font: "800 12px system-ui",
+            pixelOffset: new Cesium.Cartesian2(0, -18),
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          },
+        });
+        mapRemoteEntities.set(ck, ent);
+      } else {
+        const ent = mapRemoteEntities.get(ck);
+        ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
+        if (ent.label) ent.label.text = playerLabel(ck);
+      }
+    }
+
+    for (const [ck, ent] of mapRemoteEntities) {
+      if (!alive.has(ck)) {
+        mapViewer.entities.remove(ent);
+        mapRemoteEntities.delete(ck);
+      }
+    }
+
+    if (navDest && Number.isFinite(navDest.lat) && Number.isFinite(navDest.lon)) {
+      if (!mapEntities.dest) {
+        mapEntities.dest = mapViewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0),
+          point: {
+            pixelSize: 10,
+            color: navFollowCarKey ? Cesium.Color.LIME : Cesium.Color.YELLOW,
+            outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+            outlineWidth: 2,
+          },
+          label: {
+            text: navFollowCarKey ? `FOLLOW: ${playerLabel(navFollowCarKey)}` : "ZIEL",
+            font: "900 12px system-ui",
+            pixelOffset: new Cesium.Cartesian2(0, -18),
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          },
+        });
+      } else {
+        mapEntities.dest.position = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
+        if (mapEntities.dest.point) mapEntities.dest.point.color = navFollowCarKey ? Cesium.Color.LIME : Cesium.Color.YELLOW;
+        if (mapEntities.dest.label)
+          mapEntities.dest.label.text = navFollowCarKey ? `FOLLOW: ${playerLabel(navFollowCarKey)}` : "ZIEL";
+      }
+    } else if (mapEntities.dest) {
+      mapViewer.entities.remove(mapEntities.dest);
+      mapEntities.dest = null;
     }
   }
 
