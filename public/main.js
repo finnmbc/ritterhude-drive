@@ -156,6 +156,16 @@ function playerLabel(carKey) {
   return `${n} (${carKey})`;
 }
 
+// ✅ Marker-Farben pro Auto (für MiniMap + BigMap)
+const CAR_MARKER_COLORS = {
+  KONA: Cesium.Color.CYAN,
+  BENZ: Cesium.Color.ORANGE,
+  BULLI: Cesium.Color.LIME,
+};
+function markerColor(carKey) {
+  return CAR_MARKER_COLORS[carKey] || Cesium.Color.ORANGE;
+}
+
 // =====================================================
 // STATE
 // =====================================================
@@ -234,7 +244,7 @@ function ensureRadio() {
   if (radio) return radio;
   radio = new Audio(RADIO_URL);
   radio.crossOrigin = "anonymous";
-  radio.volume = 0.25;
+  radio.volume = 0.12; // ✅ standardmäßig leiser
   return radio;
 }
 async function toggleRadio() {
@@ -1061,6 +1071,17 @@ function ensureMapOverlay() {
     ctrl.translateEventTypes = [Cesium.CameraEventType.LEFT_DRAG];
   }
 
+  // ✅ Fix: sobald User die BigMap bewegt/zoomt -> Center-Follow AUS (damit man nicht stuck ist)
+  const stopCenterFollow = () => {
+    if (bigMapCenterFollowKey) bigMapCenterFollowKey = null;
+  };
+  const h = mapViewer.screenSpaceEventHandler;
+  h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+  h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.RIGHT_DOWN);
+  h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.MIDDLE_DOWN);
+  h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.WHEEL);
+  h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.PINCH_START);
+
   (async () => {
     try {
       if (Cesium.createWorldImageryAsync && Cesium.IonWorldImageryStyle) {
@@ -1226,6 +1247,7 @@ function toggleBigMap(force) {
   ensureMapOverlay();
   const show = typeof force === "boolean" ? force : mapOverlay.style.display === "none";
   mapOverlay.style.display = show ? "block" : "none";
+  if (!show) bigMapCenterFollowKey = null; // ✅ beim Schließen kein stuck-center
 
   if (show) {
     const lat = joinAccepted ? carLat : startLat;
@@ -1260,6 +1282,7 @@ window.addEventListener("keydown", (e) => {
 
   if (e.code === "KeyR") {
     if (!joinAccepted) return;
+    if (!isStopped()) return; // ✅ nur im Stand
     spawnCar({ lat: startLat, lon: startLon, carKey: activeCarKey, headingDeg: REWE_HEADING_DEG, resetCam: true });
   }
 
@@ -1609,7 +1632,7 @@ viewer.scene.postRender.addEventListener(() => {
     if (!miniRemoteEntities.has(id)) {
       const ent = miniViewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
-        point: { pixelSize: 9, color: Cesium.Color.ORANGE, outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
+        point: { pixelSize: 9, color: markerColor(rp.cfgKey), outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
         label: {
           text: playerLabel(rp.cfgKey || "???"),
           font: "800 11px system-ui",
@@ -1627,6 +1650,7 @@ viewer.scene.postRender.addEventListener(() => {
     const ent = miniRemoteEntities.get(id);
     ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
     if (ent.label) ent.label.text = playerLabel(rp.cfgKey || "???");
+    if (ent.point) ent.point.color = markerColor(rp.cfgKey); // ✅ falls Auto wechselt
   }
   for (const [id, ent] of miniRemoteEntities) {
     if (!remotePlayers.has(id)) {
@@ -1667,22 +1691,21 @@ viewer.scene.postRender.addEventListener(() => {
       if (inside) {
         miniNav.destEnt.show = true;
 
-        if (navFollowCarKey) {
-          const cx = w / 2;
-          const cy = h / 2;
-          const dx2 = cx - win.x;
-          const dy2 = cy - win.y;
-          const ang = Math.atan2(dy2, dx2) + Math.PI / 2;
+        // ✅ Pfeil zeigt IMMER auf das Ziel (auch ohne Follow), Richtung: Ziel -> Auto (Center)
+        const cx = w / 2;
+        const cy = h / 2;
+        const dx2 = cx - win.x;
+        const dy2 = cy - win.y;
+        const ang = Math.atan2(dy2, dx2) + Math.PI / 2;
 
-          if (miniNav.arrowEl) {
-            miniNav.arrowEl.style.display = "block";
-            miniNav.arrowEl.style.left = `${win.x}px`;
-            miniNav.arrowEl.style.top = `${win.y}px`;
-            miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${ang}rad)`;
-            miniNav.arrowEl.style.borderBottomColor = "rgba(180,255,180,0.95)";
-          }
-        } else {
-          if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
+        if (miniNav.arrowEl) {
+          miniNav.arrowEl.style.display = "block";
+          miniNav.arrowEl.style.left = `${win.x}px`;
+          miniNav.arrowEl.style.top = `${win.y}px`;
+          miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${ang}rad)`;
+          miniNav.arrowEl.style.borderBottomColor = navFollowCarKey
+            ? "rgba(180,255,180,0.95)"
+            : "rgba(255,255,255,0.95)";
         }
       } else {
         miniNav.destEnt.show = false;
@@ -1788,7 +1811,7 @@ viewer.scene.postRender.addEventListener(() => {
           position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
           point: {
             pixelSize: 10,
-            color: Cesium.Color.ORANGE,
+            color: markerColor(ck),
             outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
             outlineWidth: 2,
           },
@@ -1808,6 +1831,7 @@ viewer.scene.postRender.addEventListener(() => {
         const ent = mapRemoteEntities.get(ck);
         ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
         if (ent.label) ent.label.text = playerLabel(ck);
+        if (ent.point) ent.point.color = markerColor(ck); // ✅ falls Auto wechselt
       }
     }
 
