@@ -3,27 +3,45 @@
 // =====================================================
 // 1) TOKEN EINTRAGEN:
 // =====================================================
-// ⚠️ Sicherheits-Tipp: Token besser nicht öffentlich teilen.
-// Hier als Platzhalter – setz deinen Token wieder ein:
-Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxMmQ3Yjg4Yy1kNjM1LTQxNmMtOTY0Ny0zZTQ1Zjc3ZmFmZDkiLCJpZCI6MzgzMTIzLCJpYXQiOjE3NjkzMzAwNjl9.c43M7EsxX_pY7z9RndXbP6y9QiKqR5ST3a7nlT8Tk90";
+Cesium.Ion.defaultAccessToken = "DEIN_CESIUM_ION_TOKEN_HIER";
 
 // alte HUDs entfernen
 document.querySelectorAll(".hud").forEach((el) => el.remove());
 
 // =====================================================
-// VIEWER
+// VIEWER (MAIN)
 // =====================================================
 const viewer = new Cesium.Viewer("cesiumContainer", {
   terrain: Cesium.Terrain.fromWorldTerrain(),
   timeline: false,
   animation: false,
   shouldAnimate: true,
+  // geocoder bleibt an (ist im Cesium Viewer standardmäßig aktiv)
 });
 viewer.scene.globe.depthTestAgainstTerrain = true;
 
+// ✅ MAIN IMAGERY explizit setzen (gegen "Weltraum")
 (async () => {
-  const buildings = await Cesium.createOsmBuildingsAsync();
-  viewer.scene.primitives.add(buildings);
+  try {
+    if (Cesium.createWorldImageryAsync && Cesium.IonWorldImageryStyle) {
+      const imagery = await Cesium.createWorldImageryAsync({
+        style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS,
+      });
+      viewer.imageryLayers.removeAll(true);
+      viewer.imageryLayers.addImageryProvider(imagery);
+    }
+  } catch (e) {
+    console.warn("Main Imagery konnte nicht geladen werden (Token/Netz?):", e);
+  }
+})();
+
+(async () => {
+  try {
+    const buildings = await Cesium.createOsmBuildingsAsync();
+    viewer.scene.primitives.add(buildings);
+  } catch (e) {
+    console.warn("OSM Buildings konnten nicht geladen werden:", e);
+  }
 })();
 
 // =====================================================
@@ -31,22 +49,16 @@ viewer.scene.globe.depthTestAgainstTerrain = true;
 // =====================================================
 const startLat = 53.17992830092991;
 const startLon = 8.754863617225599;
-
-// REWE Heading bleibt wie vorher (45°)
 const REWE_HEADING_DEG = 45;
 
 // =====================================================
-// SPAWNPOINTS (+ eigener Heading pro Spawn)  -> "KLASSENSPAWNS"
+// SPAWNPOINTS
 // =====================================================
 const SPAWN1 = { lat: 53.18167657056033, lon: 8.739374157976243, headingDeg: 20 }; // KONA
 const SPAWN2 = { lat: 53.18493709131292, lon: 8.71229577112801, headingDeg: 8.5 }; // BENZ
 const SPAWN3 = { lat: 53.18605835934793, lon: 8.745079683720112, headingDeg: 90 }; // BULLI
 
-const CLASS_SPAWNS = {
-  KONA: SPAWN1,
-  BENZ: SPAWN2,
-  BULLI: SPAWN3,
-};
+const CLASS_SPAWNS = { KONA: SPAWN1, BENZ: SPAWN2, BULLI: SPAWN3 };
 
 // =====================================================
 // SPEED SETTINGS
@@ -55,7 +67,7 @@ const SPEED_FEEL_SCALE = 1.125;
 const VMAX_KMH = 190.0;
 
 // =====================================================
-// MODELLE (deine Dateien)
+// MODELLE
 // =====================================================
 const CAR_KONA_GLB = "2025_hyundai_kona_n_line.glb";
 const CAR_BENZ_GLB = "mercedes-amg_e_63_s_w213.glb";
@@ -68,54 +80,43 @@ const CAR_CONFIGS = {
   KONA: {
     name: "KONA",
     uri: CAR_KONA_GLB,
-
     modelScale: 100.0,
     minPixel: 450,
     maxScale: 100.0,
     zLift: -0.125,
     yawOffsetDeg: 270,
-
     camScreenRightOffsetM: 0.0,
-
     camRearDistBase: 18,
     camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
     camPitchBaseDeg: -15,
     camPitchAddDeg: 0.5,
-
     topHeightBase: 55,
     topHeightAdd: 120,
   },
-
   BENZ: {
     name: "BENZ",
     uri: CAR_BENZ_GLB,
-
     modelScale: 0.25,
     minPixel: 150,
     maxScale: 0.5,
     zLift: -2.5,
     yawOffsetDeg: 90,
     pitchOffsetDeg: -0.25,
-
     camScreenRightOffsetM: -1.25,
-
     camRearDistBase: 18,
     camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
     camPitchBaseDeg: -15,
     camPitchAddDeg: 0.5,
-
     topHeightBase: 45,
     topHeightAdd: 110,
   },
-
   BULLI: {
     name: "BULLI",
     uri: CAR_BULLI_GLB,
-
     modelScale: 0.325,
     minPixel: 150,
     maxScale: 0.5,
@@ -123,20 +124,30 @@ const CAR_CONFIGS = {
     yawOffsetDeg: 270,
     pitchOffsetDeg: 90,
     rollOffsetDeg: 0,
-
     camScreenRightOffsetM: 0.0,
-
     camRearDistBase: 18,
     camRearDistAdd: 7,
     camHeightBase: 5,
     camHeightAdd: 6.0,
     camPitchBaseDeg: -15,
     camPitchAddDeg: 0.5,
-
     topHeightBase: 45,
     topHeightAdd: 110,
   },
 };
+
+// =====================================================
+// ✅ NAMEN statt ID
+// =====================================================
+const PLAYER_NAMES = {
+  KONA: "David",
+  BENZ: "Finn",
+  BULLI: "Tammo",
+};
+function playerLabel(carKey) {
+  const n = PLAYER_NAMES[carKey] || "Spieler";
+  return `${n} (${carKey})`;
+}
 
 // =====================================================
 // STATE
@@ -165,7 +176,6 @@ function getAudioCtx() {
   return audioCtx;
 }
 
-// Haversine Entfernung (Meter)
 function haversineMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -177,11 +187,9 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
-// Hupe (Synth, keine Datei)
 function playHorn({ volume = 1.0, durationMs = 180 } = {}) {
   const ctx = getAudioCtx();
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
-
   const o1 = ctx.createOscillator();
   const o2 = ctx.createOscillator();
   const g = ctx.createGain();
@@ -207,10 +215,7 @@ function playHorn({ volume = 1.0, durationMs = 180 } = {}) {
 }
 
 function playHornAt(lat, lon) {
-  if (!joinAccepted) {
-    playHorn({ volume: 0.7 });
-    return;
-  }
+  if (!joinAccepted) return playHorn({ volume: 0.7 });
   const d = haversineMeters(carLat, carLon, lat, lon);
   const vol = Cesium.Math.clamp(1.0 - d / 250.0, 0.0, 1.0);
   if (vol > 0.02) playHorn({ volume: 0.85 * vol });
@@ -235,7 +240,6 @@ function ensureRadio() {
   radio.volume = 0.25;
   return radio;
 }
-
 async function toggleRadio() {
   const r = ensureRadio();
   try {
@@ -304,8 +308,7 @@ function createCarEntity(cfg) {
     position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
     model: {
       uri: cfg.uri,
-      minimumPixelSize: 0, // cfg.minPixel,
-      // maximumScale: cfg.maxScale,
+      minimumPixelSize: 0,
       scale: cfg.modelScale,
     },
     box: {
@@ -327,7 +330,6 @@ async function spawnCar({ lat, lon, carKey, headingDeg = REWE_HEADING_DEG, reset
 
   carLat = lat;
   carLon = lon;
-
   heading = Cesium.Math.toRadians(headingDeg);
 
   speed = 0;
@@ -400,12 +402,7 @@ function createRemoteCarEntity(cfg, lat, lon, h, groundH = 0) {
   const pos = Cesium.Cartesian3.fromDegrees(lon, lat, groundH + (cfg.zLift ?? 0));
   const ent = viewer.entities.add({
     position: pos,
-    model: {
-      uri: cfg.uri,
-      minimumPixelSize: 0, // cfg.minPixel,
-      // maximumScale: cfg.maxScale,
-      scale: cfg.modelScale,
-    },
+    model: { uri: cfg.uri, minimumPixelSize: 0, scale: cfg.modelScale },
   });
 
   const modelYawOffset = Cesium.Math.toRadians(cfg.yawOffsetDeg ?? 0);
@@ -421,7 +418,6 @@ ws.addEventListener("open", () => {
   applyClassStatusToMenu();
   if (menuHintEl && !joinAccepted) setMenuHint("Verbunden. Wähle eine Klasse.");
 });
-
 ws.addEventListener("close", () => {
   wsOpen = false;
   applyClassStatusToMenu();
@@ -451,13 +447,9 @@ ws.addEventListener("message", async (ev) => {
     joinPending = false;
     applyClassStatusToMenu();
 
-    if (msg.reason === "class_taken") {
-      setMenuHint("Diese Klasse ist schon belegt. Wähle eine andere.", true);
-    } else if (msg.reason === "already_joined") {
-      setMenuHint("Du bist schon im Spiel.", true);
-    } else {
-      setMenuHint("Join abgelehnt.", true);
-    }
+    if (msg.reason === "class_taken") setMenuHint("Diese Klasse ist schon belegt. Wähle eine andere.", true);
+    else if (msg.reason === "already_joined") setMenuHint("Du bist schon im Spiel.", true);
+    else setMenuHint("Join abgelehnt.", true);
     return;
   }
 
@@ -634,8 +626,8 @@ function showCarSelectMenu() {
 
   const hint = document.createElement("div");
   hint.innerHTML = `<div style="margin-top:12px; opacity:.75; font-size:12px;">
-      Steuerung: W/A/S/D • Kamera: Pfeile halten • REWE: <b>R</b> • Hupe: <b>E</b> • Radio: <b>Q</b><br>
-      Navi: Klick in Minimap setzt Ziel • Rechtsklick löscht Ziel
+      Steuerung: W/A/S/D • Kamera: Pfeile halten • REWE: <b>R</b> • Hupe: <b>E</b> • Radio: <b>Q</b> • Map: <b>M</b><br>
+      Navi: Minimap Klick setzt Ziel • Rechtsklick löscht Ziel • Große Map: Ziel per Drag+„Ziel hier“
     </div>`;
 
   panel.appendChild(title);
@@ -649,8 +641,6 @@ function showCarSelectMenu() {
 
   applyClassStatusToMenu();
 }
-
-// Menü direkt beim Start zeigen (und NICHT automatisch spawnen)
 showCarSelectMenu();
 
 // =====================================================
@@ -673,7 +663,6 @@ let camHeightCur = 12;
 let camPitchDegCur = -20;
 let topHeightCur = 55;
 
-// Pfeiltasten: View nur solange gedrückt
 window.addEventListener("keydown", (e) => {
   if (e.code.startsWith("Arrow")) e.preventDefault();
   const v = setHoldFromArrow(e.code);
@@ -688,37 +677,6 @@ window.addEventListener("keyup", (e) => {
   if (v && camHold === v) {
     camHold = null;
     camView = DEFAULT_CAM_VIEW;
-  }
-});
-
-// =====================================================
-// INPUT: Reset / Hupe / Radio
-// =====================================================
-window.addEventListener("keydown", (e) => {
-  if (e.repeat) return;
-
-  // R = REWE im aktuellen Auto + REWE Heading
-  if (e.code === "KeyR") {
-    if (!joinAccepted) return; // vor Join kein Reset
-    spawnCar({
-      lat: startLat,
-      lon: startLon,
-      carKey: activeCarKey,
-      headingDeg: REWE_HEADING_DEG,
-      resetCam: true,
-    });
-  }
-
-  // E = HUPE (alle hören)
-  if (e.code === "KeyE") {
-    if (!joinAccepted) return;
-    playHorn({ volume: 0.9 });
-    sendHorn();
-  }
-
-  // Q = RADIO an/aus
-  if (e.code === "KeyQ") {
-    toggleRadio();
   }
 });
 
@@ -738,7 +696,7 @@ hudControls.style.letterSpacing = "0.2px";
 hudControls.style.zIndex = "9999";
 hudControls.style.userSelect = "none";
 hudControls.innerHTML =
-  `W = Vorwärts<br>A = Links<br>S = Bremsen/Rückwärts<br>D = Rechts<br>R = REWE<br>E = Hupe<br>Q = Radio<br><br>Ä = Auto-Zoom<br>+/- = Minimap-Zoom<br><br>⬇️ = Vorne<br>⬆️ = Oben<br>⬅️ = Links<br>➡️ = Rechts`;
+  `W = Vorwärts<br>A = Links<br>S = Bremsen/Rückwärts<br>D = Rechts<br>R = REWE<br>E = Hupe<br>Q = Radio<br>M = Map/Navi<br><br>Ä = Auto-Zoom<br>+/- = Minimap-Zoom<br><br>⬇️ = Vorne<br>⬆️ = Oben<br>⬅️ = Links<br>➡️ = Rechts`;
 document.body.appendChild(hudControls);
 
 const hudSpeed = document.createElement("div");
@@ -754,10 +712,10 @@ hudSpeed.style.font = "600 18px/1.1 system-ui, Arial";
 hudSpeed.style.letterSpacing = "0.5px";
 hudSpeed.style.zIndex = "9999";
 hudSpeed.style.userSelect = "none";
-hudSpeed.textContent = "0 km/h  •  D";
+hudSpeed.textContent = "0 km/h";
 document.body.appendChild(hudSpeed);
 
-// ✅ Player-Liste oben rechts
+// ✅ Player-Liste oben rechts (klickbar -> Follow)
 const hudPlayers = document.createElement("div");
 hudPlayers.style.position = "absolute";
 hudPlayers.style.right = "14px";
@@ -770,29 +728,13 @@ hudPlayers.style.font = "700 13px/1.25 system-ui, Arial";
 hudPlayers.style.letterSpacing = "0.2px";
 hudPlayers.style.zIndex = "9999";
 hudPlayers.style.userSelect = "none";
+hudPlayers.style.cursor = "default";
 hudPlayers.innerHTML = "Spieler: –";
 document.body.appendChild(hudPlayers);
 
-function updatePlayerListHud() {
-  const mine = joinAccepted ? `🟦 Du (${activeCarKey})` : "🟦 Du (nicht verbunden)";
-  const others = [];
-  for (const [id, rp] of remotePlayers) {
-    const carKey = rp.cfgKey || "???";
-    const shortId = String(id).slice(0, 4);
-    others.push(`🟧 ${shortId} (${carKey})`);
-  }
-  const total = (joinAccepted ? 1 : 0) + remotePlayers.size;
-  hudPlayers.innerHTML =
-    `<div style="opacity:.9">Spieler (${total})</div>` +
-    `<div style="margin-top:6px">${mine}</div>` +
-    (others.length
-      ? `<div style="margin-top:6px; opacity:.95">${others.join("<br>")}</div>`
-      : `<div style="margin-top:6px; opacity:.7">keine</div>`);
-}
-
-// =========================
+// =====================================================
 // MINIMAP
-// =========================
+// =====================================================
 const miniDiv = document.createElement("div");
 miniDiv.id = "miniMap";
 miniDiv.style.position = "absolute";
@@ -805,8 +747,7 @@ miniDiv.style.overflow = "hidden";
 miniDiv.style.boxShadow = "0 10px 30px rgba(0,0,0,0.35)";
 miniDiv.style.zIndex = "9998";
 miniDiv.style.border = "1px solid rgba(255,255,255,0.12)";
-// ✅ Klickbar für Navi
-miniDiv.style.pointerEvents = "auto";
+miniDiv.style.pointerEvents = "auto"; // ✅ klickbar (Navi Ziel setzen)
 document.body.appendChild(miniDiv);
 
 const miniViewer = new Cesium.Viewer("miniMap", {
@@ -840,8 +781,6 @@ miniViewer.scene.screenSpaceCameraController.enableLook = false;
       });
       miniViewer.imageryLayers.removeAll(true);
       miniViewer.imageryLayers.addImageryProvider(road);
-    } else {
-      console.warn("ROAD-Style nicht verfügbar – Minimap nutzt Default-Layer.");
     }
   } catch (e) {
     console.warn("Minimap ROAD Layer konnte nicht geladen werden:", e);
@@ -878,31 +817,13 @@ function isUmlautA(e) {
   return e.key === "ä" || e.key === "Ä" || e.code === "Quote";
 }
 
-window.addEventListener("keydown", (e) => {
-  if (isPlusKey(e)) {
-    miniAutoZoom = false;
-    miniManualHeight = Math.max(MINI_MIN_H, miniManualHeight * 0.85);
-  }
-  if (isMinusKey(e)) {
-    miniAutoZoom = false;
-    miniManualHeight = Math.min(MINI_MAX_H, miniManualHeight / 0.85);
-  }
-  if (isUmlautA(e)) {
-    miniAutoZoom = !miniAutoZoom;
-    if (!miniAutoZoom) miniManualHeight = miniHeightCur;
-  }
-});
-
 // =====================================================
-// ✅ NAVI + MINIMAP PLAYER MARKER
+// ✅ NAVI: Ziel, Follow-Spieler, Route in Minimap
 // =====================================================
-const miniEntities = {
-  me: null,
-  dest: null,
-  route: null,
-};
+const miniEntities = { me: null, dest: null, route: null };
 const miniRemoteEntities = new Map(); // id -> entity
 let navDest = null; // {lat, lon}
+let navFollowCarKey = null; // "KONA"/"BENZ"/"BULLI" oder null
 
 function ensureMiniMe() {
   if (miniEntities.me) return;
@@ -927,7 +848,15 @@ function ensureMiniMe() {
   });
 }
 
+function clearNav() {
+  navDest = null;
+  navFollowCarKey = null;
+  if (miniEntities.dest) miniViewer.entities.remove(miniEntities.dest), (miniEntities.dest = null);
+  if (miniEntities.route) miniViewer.entities.remove(miniEntities.route), (miniEntities.route = null);
+}
+
 function setNavDestination(lat, lon) {
+  navFollowCarKey = null; // ✅ fix: manuelles Ziel beendet Follow
   navDest = { lat, lon };
 
   if (miniEntities.dest) miniViewer.entities.remove(miniEntities.dest);
@@ -969,9 +898,51 @@ function setNavDestination(lat, lon) {
   });
 }
 
-// Klick in Minimap setzt Ziel, Rechtsklick löscht Ziel
-const miniHandler = new Cesium.ScreenSpaceEventHandler(miniViewer.canvas);
+function setNavFollow(carKey) {
+  navFollowCarKey = carKey;
+  // Ziel/Route wird im Renderloop automatisch auf den Spieler gesetzt
+  // wir zeigen trotzdem ein Dest-Icon, das mitwandert
+  if (miniEntities.dest) miniViewer.entities.remove(miniEntities.dest);
+  if (miniEntities.route) miniViewer.entities.remove(miniEntities.route);
 
+  miniEntities.dest = miniViewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.LIME,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+      outlineWidth: 2,
+    },
+    label: {
+      text: `FOLLOW: ${playerLabel(carKey)}`,
+      font: "800 12px system-ui",
+      pixelOffset: new Cesium.Cartesian2(0, -18),
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+
+  miniEntities.route = miniViewer.entities.add({
+    polyline: {
+      positions: new Cesium.CallbackProperty(() => {
+        if (!navDest) return [];
+        return [
+          Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
+          Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0),
+        ];
+      }, false),
+      width: 3,
+      material: Cesium.Color.LIME.withAlpha(0.9),
+      clampToGround: true,
+    },
+  });
+}
+
+// Minimap: Klick setzt Ziel, Rechtsklick löscht Ziel
+const miniHandler = new Cesium.ScreenSpaceEventHandler(miniViewer.canvas);
 miniHandler.setInputAction((movement) => {
   const p = miniViewer.camera.pickEllipsoid(movement.position, miniViewer.scene.globe.ellipsoid);
   if (!p) return;
@@ -982,10 +953,469 @@ miniHandler.setInputAction((movement) => {
 }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
 miniHandler.setInputAction(() => {
-  navDest = null;
-  if (miniEntities.dest) miniViewer.entities.remove(miniEntities.dest), (miniEntities.dest = null);
-  if (miniEntities.route) miniViewer.entities.remove(miniEntities.route), (miniEntities.route = null);
+  clearNav();
 }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+
+// =====================================================
+// ✅ GROßE MAP (M): Adresse suchen, ziehen, Ziel festlegen, Spieler anklicken/follow
+// =====================================================
+let mapOverlay = null;
+let mapViewer = null;
+let mapCross = null;
+let mapMsg = null;
+
+function ensureMapOverlay() {
+  if (mapOverlay) return;
+
+  mapOverlay = document.createElement("div");
+  mapOverlay.id = "bigMapOverlay";
+  mapOverlay.style.position = "absolute";
+  mapOverlay.style.inset = "0";
+  mapOverlay.style.background = "rgba(0,0,0,0.72)";
+  mapOverlay.style.zIndex = "10002";
+  mapOverlay.style.display = "none";
+
+  const panel = document.createElement("div");
+  panel.style.position = "absolute";
+  panel.style.left = "50%";
+  panel.style.top = "50%";
+  panel.style.transform = "translate(-50%,-50%)";
+  panel.style.width = "min(1100px, 94vw)";
+  panel.style.height = "min(720px, 88vh)";
+  panel.style.background = "rgba(16,16,16,0.92)";
+  panel.style.border = "1px solid rgba(255,255,255,0.14)";
+  panel.style.borderRadius = "18px";
+  panel.style.boxShadow = "0 20px 70px rgba(0,0,0,0.6)";
+  panel.style.overflow = "hidden";
+
+  const topbar = document.createElement("div");
+  topbar.style.display = "flex";
+  topbar.style.gap = "10px";
+  topbar.style.alignItems = "center";
+  topbar.style.padding = "12px";
+  topbar.style.borderBottom = "1px solid rgba(255,255,255,0.12)";
+  topbar.style.color = "white";
+  topbar.style.font = "700 14px system-ui, Arial";
+
+  const title = document.createElement("div");
+  title.textContent = "Map / Navi (M zum Schließen)";
+  title.style.opacity = "0.95";
+  title.style.flex = "0 0 auto";
+
+  const input = document.createElement("input");
+  input.placeholder = "Adresse suchen (z.B. 'Bremen Hbf' oder 'Ritterhude')";
+  input.style.flex = "1 1 auto";
+  input.style.padding = "10px 12px";
+  input.style.borderRadius = "12px";
+  input.style.border = "1px solid rgba(255,255,255,0.18)";
+  input.style.background = "rgba(255,255,255,0.08)";
+  input.style.color = "white";
+  input.style.outline = "none";
+  input.style.font = "700 14px system-ui, Arial";
+
+  const btnSearch = document.createElement("button");
+  btnSearch.textContent = "Suchen";
+  btnSearch.style.padding = "10px 12px";
+  btnSearch.style.borderRadius = "12px";
+  btnSearch.style.border = "1px solid rgba(255,255,255,0.18)";
+  btnSearch.style.background = "rgba(255,255,255,0.10)";
+  btnSearch.style.color = "white";
+  btnSearch.style.cursor = "pointer";
+  btnSearch.style.font = "800 14px system-ui, Arial";
+
+  const btnSet = document.createElement("button");
+  btnSet.textContent = "Ziel hier (Mitte)";
+  btnSet.style.padding = "10px 12px";
+  btnSet.style.borderRadius = "12px";
+  btnSet.style.border = "1px solid rgba(255,255,255,0.18)";
+  btnSet.style.background = "rgba(255,255,255,0.14)";
+  btnSet.style.color = "white";
+  btnSet.style.cursor = "pointer";
+  btnSet.style.font = "900 14px system-ui, Arial";
+
+  const btnClear = document.createElement("button");
+  btnClear.textContent = "Ziel löschen";
+  btnClear.style.padding = "10px 12px";
+  btnClear.style.borderRadius = "12px";
+  btnClear.style.border = "1px solid rgba(255,255,255,0.18)";
+  btnClear.style.background = "rgba(255,255,255,0.06)";
+  btnClear.style.color = "white";
+  btnClear.style.cursor = "pointer";
+  btnClear.style.font = "800 14px system-ui, Arial";
+
+  const btnClose = document.createElement("button");
+  btnClose.textContent = "Schließen";
+  btnClose.style.padding = "10px 12px";
+  btnClose.style.borderRadius = "12px";
+  btnClose.style.border = "1px solid rgba(255,255,255,0.18)";
+  btnClose.style.background = "rgba(255,255,255,0.06)";
+  btnClose.style.color = "white";
+  btnClose.style.cursor = "pointer";
+  btnClose.style.font = "800 14px system-ui, Arial";
+
+  topbar.appendChild(title);
+  topbar.appendChild(input);
+  topbar.appendChild(btnSearch);
+  topbar.appendChild(btnSet);
+  topbar.appendChild(btnClear);
+  topbar.appendChild(btnClose);
+
+  const body = document.createElement("div");
+  body.style.position = "absolute";
+  body.style.left = "0";
+  body.style.right = "0";
+  body.style.top = "52px";
+  body.style.bottom = "0";
+  body.style.display = "grid";
+  body.style.gridTemplateColumns = "1fr 280px";
+
+  const mapWrap = document.createElement("div");
+  mapWrap.style.position = "relative";
+  mapWrap.style.height = "100%";
+  mapWrap.style.borderRight = "1px solid rgba(255,255,255,0.10)";
+
+  const mapDiv = document.createElement("div");
+  mapDiv.id = "bigMapCesium";
+  mapDiv.style.position = "absolute";
+  mapDiv.style.inset = "0";
+  mapWrap.appendChild(mapDiv);
+
+  // Crosshair (Center)
+  mapCross = document.createElement("div");
+  mapCross.style.position = "absolute";
+  mapCross.style.left = "50%";
+  mapCross.style.top = "50%";
+  mapCross.style.width = "14px";
+  mapCross.style.height = "14px";
+  mapCross.style.transform = "translate(-50%,-50%)";
+  mapCross.style.borderRadius = "50%";
+  mapCross.style.border = "2px solid rgba(255,255,255,0.85)";
+  mapCross.style.boxShadow = "0 0 12px rgba(0,0,0,0.6)";
+  mapCross.style.pointerEvents = "none";
+  mapWrap.appendChild(mapCross);
+
+  // Message
+  mapMsg = document.createElement("div");
+  mapMsg.style.position = "absolute";
+  mapMsg.style.left = "12px";
+  mapMsg.style.bottom = "12px";
+  mapMsg.style.padding = "8px 10px";
+  mapMsg.style.borderRadius = "12px";
+  mapMsg.style.background = "rgba(0,0,0,0.55)";
+  mapMsg.style.border = "1px solid rgba(255,255,255,0.12)";
+  mapMsg.style.color = "white";
+  mapMsg.style.font = "700 12px system-ui, Arial";
+  mapMsg.style.opacity = "0.85";
+  mapMsg.textContent = "Ziehen = Karte bewegen • Mausrad = Zoom • „Ziel hier“ setzt Ziel";
+  mapWrap.appendChild(mapMsg);
+
+  // Sidebar: Spieler anklicken -> Follow
+  const side = document.createElement("div");
+  side.style.padding = "12px";
+  side.style.color = "white";
+  side.style.font = "800 13px system-ui, Arial";
+  side.style.overflow = "auto";
+
+  const sideTitle = document.createElement("div");
+  sideTitle.textContent = "Spieler (klicken = Follow-Ziel)";
+  sideTitle.style.opacity = "0.9";
+  sideTitle.style.marginBottom = "10px";
+
+  const sideList = document.createElement("div");
+  sideList.id = "bigMapPlayersList";
+  sideList.style.display = "grid";
+  sideList.style.gap = "8px";
+
+  side.appendChild(sideTitle);
+  side.appendChild(sideList);
+
+  body.appendChild(mapWrap);
+  body.appendChild(side);
+
+  panel.appendChild(topbar);
+  panel.appendChild(body);
+  mapOverlay.appendChild(panel);
+  document.body.appendChild(mapOverlay);
+
+  // Cesium Map Viewer (interaktiv)
+  mapViewer = new Cesium.Viewer("bigMapCesium", {
+    terrain: Cesium.Terrain.fromWorldTerrain(),
+    timeline: false,
+    animation: false,
+    shouldAnimate: false,
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    navigationHelpButton: false,
+    sceneModePicker: false,
+    infoBox: false,
+    selectionIndicator: false,
+    fullscreenButton: false,
+    vrButton: false,
+  });
+  mapViewer.scene.globe.depthTestAgainstTerrain = true;
+
+  // Wie "Karte": kein rotate/tilt, aber translate+zoom erlauben
+  const c = mapViewer.scene.screenSpaceCameraController;
+  c.enableRotate = false;
+  c.enableTilt = false;
+  c.enableLook = false;
+  c.enableZoom = true;
+  c.enableTranslate = true;
+
+  // Imagery Road
+  (async () => {
+    try {
+      if (Cesium.createWorldImageryAsync && Cesium.IonWorldImageryStyle) {
+        const road = await Cesium.createWorldImageryAsync({
+          style: Cesium.IonWorldImageryStyle.ROAD,
+        });
+        mapViewer.imageryLayers.removeAll(true);
+        mapViewer.imageryLayers.addImageryProvider(road);
+      }
+    } catch (e) {
+      console.warn("Big Map ROAD Layer konnte nicht geladen werden:", e);
+    }
+  })();
+
+  function refreshBigMapPlayers() {
+    const list = document.getElementById("bigMapPlayersList");
+    if (!list) return;
+    list.innerHTML = "";
+
+    // Ich
+    if (joinAccepted) {
+      const meBtn = document.createElement("button");
+      meBtn.textContent = `🟦 ${playerLabel(activeCarKey)} (DU)`;
+      meBtn.style.padding = "10px 10px";
+      meBtn.style.borderRadius = "12px";
+      meBtn.style.border = "1px solid rgba(255,255,255,0.16)";
+      meBtn.style.background = "rgba(255,255,255,0.06)";
+      meBtn.style.color = "white";
+      meBtn.style.font = "900 13px system-ui, Arial";
+      meBtn.style.cursor = "default";
+      list.appendChild(meBtn);
+    }
+
+    // Andere: carKey ist einzigartig (Klassenlocks)
+    const seen = new Set();
+    for (const [, rp] of remotePlayers) {
+      const ck = rp.cfgKey;
+      if (!ck || seen.has(ck)) continue;
+      seen.add(ck);
+
+      const btn = document.createElement("button");
+      btn.textContent = `🟧 ${playerLabel(ck)}`;
+      btn.style.padding = "10px 10px";
+      btn.style.borderRadius = "12px";
+      btn.style.border = "1px solid rgba(255,255,255,0.16)";
+      btn.style.background = navFollowCarKey === ck ? "rgba(120,255,120,0.18)" : "rgba(255,255,255,0.08)";
+      btn.style.color = "white";
+      btn.style.font = "900 13px system-ui, Arial";
+      btn.style.cursor = "pointer";
+
+      btn.onclick = () => {
+        setNavFollow(ck);
+        // Karte auf Spieler zentrieren
+        const rp2 = [...remotePlayers.values()].find((x) => x.cfgKey === ck);
+        if (rp2) {
+          mapViewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(rp2.curLon, rp2.curLat, 1200),
+            duration: 0.35,
+          });
+        }
+        refreshBigMapPlayers();
+      };
+      list.appendChild(btn);
+    }
+
+    if (!seen.size) {
+      const none = document.createElement("div");
+      none.textContent = "Keine anderen Spieler online.";
+      none.style.opacity = "0.75";
+      none.style.font = "700 12px system-ui, Arial";
+      none.style.marginTop = "6px";
+      list.appendChild(none);
+    }
+  }
+
+  async function geocodeAddress(q) {
+    // Nominatim (OSM) - funktioniert in vielen Fällen direkt (CORS kann je nach Hosting/Browser zicken)
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, {
+      headers: {
+        // kein echter UA im Browser möglich; Referer reicht meistens
+        "Accept": "application/json",
+      },
+    });
+    if (!res.ok) throw new Error("Geocoding HTTP " + res.status);
+    const data = await res.json();
+    if (!data || !data[0]) return null;
+    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+  }
+
+  async function doSearch() {
+    const q = (input.value || "").trim();
+    if (!q) return;
+    mapMsg.textContent = "Suche…";
+    try {
+      const hit = await geocodeAddress(q);
+      if (!hit || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lon)) {
+        mapMsg.textContent = "Nichts gefunden. Andere Schreibweise probieren.";
+        return;
+      }
+      mapViewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(hit.lon, hit.lat, 1800),
+        duration: 0.6,
+      });
+      mapMsg.textContent = "Gefunden. Ziehen/Zoomen und „Ziel hier“ drücken.";
+    } catch (e) {
+      console.warn("Geocoding failed:", e);
+      mapMsg.textContent = "Suche blockiert. Nutze Ziehen/Zoomen und setze Ziel manuell.";
+    }
+  }
+
+  btnSearch.onclick = doSearch;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doSearch();
+  });
+
+  btnSet.onclick = () => {
+    // Ziel = Mitte der großen Map (Crosshair)
+    const canvas = mapViewer.canvas;
+    const center = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+    const ellipsoid = mapViewer.scene.globe.ellipsoid;
+    const p = mapViewer.camera.pickEllipsoid(center, ellipsoid);
+    if (!p) {
+      mapMsg.textContent = "Konnte Mittelpunkt nicht bestimmen (Zoom näher ran).";
+      return;
+    }
+    const c2 = Cesium.Cartographic.fromCartesian(p);
+    const lat = Cesium.Math.toDegrees(c2.latitude);
+    const lon = Cesium.Math.toDegrees(c2.longitude);
+
+    setNavDestination(lat, lon);
+    mapMsg.textContent = `Ziel gesetzt. (${lat.toFixed(5)}, ${lon.toFixed(5)})`;
+    refreshBigMapPlayers();
+  };
+
+  btnClear.onclick = () => {
+    clearNav();
+    mapMsg.textContent = "Ziel gelöscht.";
+    refreshBigMapPlayers();
+  };
+
+  btnClose.onclick = () => toggleBigMap(false);
+
+  // Expose refresher
+  mapOverlay.__refreshPlayers = refreshBigMapPlayers;
+}
+
+function toggleBigMap(force) {
+  ensureMapOverlay();
+  const show = typeof force === "boolean" ? force : mapOverlay.style.display === "none";
+  mapOverlay.style.display = show ? "block" : "none";
+
+  if (show) {
+    // auf aktuelle Position zentrieren
+    const lat = joinAccepted ? carLat : startLat;
+    const lon = joinAccepted ? carLon : startLon;
+    mapViewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(lon, lat, 1600),
+      duration: 0.35,
+    });
+    mapOverlay.__refreshPlayers?.();
+  }
+}
+
+// =====================================================
+// INPUT (R/E/Q/M und Minimap Zoom Keys)
+// =====================================================
+window.addEventListener("keydown", (e) => {
+  // Pfeile wurden oben behandelt
+  if (e.repeat) return;
+
+  if (e.code === "KeyR") {
+    if (!joinAccepted) return;
+    spawnCar({
+      lat: startLat,
+      lon: startLon,
+      carKey: activeCarKey,
+      headingDeg: REWE_HEADING_DEG,
+      resetCam: true,
+    });
+  }
+
+  if (e.code === "KeyE") {
+    if (!joinAccepted) return;
+    playHorn({ volume: 0.9 });
+    sendHorn();
+  }
+
+  if (e.code === "KeyQ") {
+    toggleRadio();
+  }
+
+  if (e.code === "KeyM") {
+    toggleBigMap();
+  }
+
+  // Minimap zoom keys
+  if (isPlusKey(e)) {
+    miniAutoZoom = false;
+    miniManualHeight = Math.max(MINI_MIN_H, miniManualHeight * 0.85);
+  }
+  if (isMinusKey(e)) {
+    miniAutoZoom = false;
+    miniManualHeight = Math.min(MINI_MAX_H, miniManualHeight / 0.85);
+  }
+  if (isUmlautA(e)) {
+    miniAutoZoom = !miniAutoZoom;
+    if (!miniAutoZoom) miniManualHeight = miniHeightCur;
+  }
+});
+
+// =====================================================
+// PLAYER LIST HUD (oben rechts) – klickbar: Follow
+// =====================================================
+function updatePlayerListHud() {
+  const total = (joinAccepted ? 1 : 0) + remotePlayers.size;
+
+  // clickable list
+  const lines = [];
+  if (joinAccepted) lines.push(`<span style="cursor:default">🟦 ${playerLabel(activeCarKey)} (DU)</span>`);
+  else lines.push(`<span style="opacity:.7">🟦 Du (nicht verbunden)</span>`);
+
+  // Unique per carKey
+  const seen = new Set();
+  for (const [, rp] of remotePlayers) {
+    const ck = rp.cfgKey || "???";
+    if (seen.has(ck)) continue;
+    seen.add(ck);
+
+    const isFollow = navFollowCarKey === ck;
+    const style = `cursor:pointer; ${isFollow ? "color:#b8ffb8" : ""}`;
+    lines.push(
+      `<span data-follow="${ck}" style="${style}">🟧 ${playerLabel(ck)}${isFollow ? " • FOLLOW" : ""}</span>`
+    );
+  }
+
+  hudPlayers.innerHTML =
+    `<div style="opacity:.9">Spieler (${total})</div>` +
+    `<div style="margin-top:6px; display:grid; gap:4px;">${lines.join("")}</div>` +
+    `<div style="margin-top:8px; opacity:.65; font-size:11px;">Tipp: Klick auf Spieler = Follow-Ziel • Rechtsklick Minimap = Ziel löschen</div>`;
+
+  // attach click handlers
+  hudPlayers.querySelectorAll("[data-follow]").forEach((el) => {
+    el.onclick = () => {
+      const ck = el.getAttribute("data-follow");
+      if (!ck || ck === "???") return;
+      setNavFollow(ck);
+      // optional: big map list refresh
+      mapOverlay?.__refreshPlayers?.();
+    };
+  });
+}
 
 // =====================================================
 // DRIVE LOOP + NETWORK SEND + REMOTE SMOOTH
@@ -1011,7 +1441,7 @@ function sendMyState() {
 }
 
 viewer.scene.postRender.addEventListener(() => {
-  if (!car) return; // noch kein Auto gewählt -> nix fahren
+  if (!car) return;
 
   const now = performance.now();
   const dt = Math.min(0.05, (now - lastTime) / 1000);
@@ -1209,11 +1639,7 @@ viewer.scene.postRender.addEventListener(() => {
 
   viewer.camera.setView({
     destination: camPos,
-    orientation: {
-      heading: camHeading,
-      pitch: camPitch,
-      roll: 0,
-    },
+    orientation: { heading: camHeading, pitch: camPitch, roll: 0 },
   });
 
   // Minimap camera
@@ -1226,20 +1652,8 @@ viewer.scene.postRender.addEventListener(() => {
 
   miniViewer.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(carLon, carLat, miniHeightCur),
-    orientation: {
-      heading: heading,
-      pitch: Cesium.Math.toRadians(-90),
-      roll: 0,
-    },
+    orientation: { heading: heading, pitch: Cesium.Math.toRadians(-90), roll: 0 },
   });
-
-  // HUD (inkl. Navi Distanz)
-  let navText = "";
-  if (navDest) {
-    const d = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
-    navText = ` • NAV: ${(d / 1000).toFixed(2)} km`;
-  }
-  hudSpeed.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  CAR: ${activeCfg.name}${navText}`;
 
   // =========================
   // NETWORK SEND (10 Hz)
@@ -1253,7 +1667,7 @@ viewer.scene.postRender.addEventListener(() => {
   // =========================
   // REMOTE CARS SMOOTH
   // =========================
-  for (const [id, rp] of remotePlayers) {
+  for (const [, rp] of remotePlayers) {
     const t = rp.target;
     if (!t) continue;
 
@@ -1285,16 +1699,33 @@ viewer.scene.postRender.addEventListener(() => {
   }
 
   // =========================
+  // ✅ NAV FOLLOW: Ziel = Spielerposition
+  // =========================
+  if (navFollowCarKey) {
+    const rp = [...remotePlayers.values()].find((x) => x.cfgKey === navFollowCarKey);
+    if (rp) {
+      navDest = { lat: rp.curLat, lon: rp.curLon };
+      // dest-marker mitziehen (lime)
+      if (miniEntities.dest) {
+        miniEntities.dest.position = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
+      }
+    } else {
+      // Spieler weg -> Follow stoppen
+      navFollowCarKey = null;
+    }
+  }
+
+  // =========================
   // ✅ MINIMAP: ME + REMOTES
   // =========================
   ensureMiniMe();
   if (miniEntities.me) {
     miniEntities.me.position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 0);
+    if (miniEntities.me.label) miniEntities.me.label.text = playerLabel(activeCarKey);
   }
 
   for (const [id, rp] of remotePlayers) {
     if (!miniRemoteEntities.has(id)) {
-      const shortId = String(id).slice(0, 4);
       const ent = miniViewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
         point: {
@@ -1304,7 +1735,7 @@ viewer.scene.postRender.addEventListener(() => {
           outlineWidth: 2,
         },
         label: {
-          text: shortId,
+          text: playerLabel(rp.cfgKey || "???"),
           font: "800 11px system-ui",
           pixelOffset: new Cesium.Cartesian2(0, -16),
           fillColor: Cesium.Color.WHITE,
@@ -1318,6 +1749,7 @@ viewer.scene.postRender.addEventListener(() => {
     }
     const ent = miniRemoteEntities.get(id);
     ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
+    if (ent.label) ent.label.text = playerLabel(rp.cfgKey || "???");
   }
 
   for (const [id, ent] of miniRemoteEntities) {
@@ -1327,20 +1759,23 @@ viewer.scene.postRender.addEventListener(() => {
     }
   }
 
+  // =========================
+  // ✅ HUD: Speed + NAV Distanz
+  // =========================
+  let navText = "";
+  if (navDest) {
+    const d = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
+    navText = ` • NAV: ${(d / 1000).toFixed(2)} km`;
+  }
+  const who = joinAccepted ? playerLabel(activeCarKey) : "Du";
+  const followText = navFollowCarKey ? ` • FOLLOW: ${playerLabel(navFollowCarKey)}` : "";
+  hudSpeed.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  ${who}${navText}${followText}`;
+
   // ✅ Spieler-Liste aktualisieren
   updatePlayerListHud();
+
+  // ✅ Big Map Sidebar aktualisieren (wenn offen)
+  if (mapOverlay && mapOverlay.style.display !== "none") {
+    mapOverlay.__refreshPlayers?.();
+  }
 });
-
-/*
-=====================================================
-SERVER-HINWEIS (damit HUPE wirklich bei allen ankommt)
-=====================================================
-Dein WebSocket-Server muss "horn" weiterleiten.
-Beispiel (Node ws):
-
-if (msg.type === "horn") {
-  const out = JSON.stringify({ type:"horn", id: clientId, lat: msg.lat, lon: msg.lon });
-  wss.clients.forEach(c => { if (c.readyState === 1) c.send(out); });
-}
-
-*/
