@@ -1,12 +1,24 @@
 /* global Cesium */
 
 // =====================================================
-// 1) TOKEN EINTRAGEN:
+// ✅ TOKEN (dein Token)
 // =====================================================
-Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxMmQ3Yjg4Yy1kNjM1LTQxNmMtOTY0Ny0zZTQ1Zjc3ZmFmZDkiLCJpZCI6MzgzMTIzLCJpYXQiOjE3NjkzMzAwNjl9.c43M7EsxX_pY7z9RndXbP6y9QiKqR5ST3a7nlT8Tk90";
+// ⚠️ Nicht öffentlich posten – ist wie ein Passwort.
+Cesium.Ion.defaultAccessToken =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxMmQ3Yjg4Yy1kNjM1LTQxNmMtOTY0Ny0zZTQ1Zjc3ZmFmZDkiLCJpZCI6MzgzMTIzLCJpYXQiOjE3NjkzMzAwNjl9.c43M7EsxX_pY7z9RndXbP6y9QiKqR5ST3a7nlT8Tk90";
 
 // alte HUDs entfernen
 document.querySelectorAll(".hud").forEach((el) => el.remove());
+
+// =====================================================
+// ✅ INPUT-LOCK: während tippen KEINE Hupe/Reset/Radio/Map/Steuerung
+// =====================================================
+function isTyping() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = (el.tagName || "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable === true;
+}
 
 // =====================================================
 // VIEWER (MAIN)
@@ -16,7 +28,6 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
   timeline: false,
   animation: false,
   shouldAnimate: true,
-  // geocoder bleibt an (ist im Cesium Viewer standardmäßig aktiv)
 });
 viewer.scene.globe.depthTestAgainstTerrain = true;
 
@@ -31,7 +42,7 @@ viewer.scene.globe.depthTestAgainstTerrain = true;
       viewer.imageryLayers.addImageryProvider(imagery);
     }
   } catch (e) {
-    console.warn("Main Imagery konnte nicht geladen werden (Token/Netz?):", e);
+    console.warn("Main Imagery konnte nicht geladen werden:", e);
   }
 })();
 
@@ -52,7 +63,7 @@ const startLon = 8.754863617225599;
 const REWE_HEADING_DEG = 45;
 
 // =====================================================
-// SPAWNPOINTS
+// SPAWNPOINTS (+ eigener Heading pro Spawn)
 // =====================================================
 const SPAWN1 = { lat: 53.18167657056033, lon: 8.739374157976243, headingDeg: 20 }; // KONA
 const SPAWN2 = { lat: 53.18493709131292, lon: 8.71229577112801, headingDeg: 8.5 }; // BENZ
@@ -81,8 +92,6 @@ const CAR_CONFIGS = {
     name: "KONA",
     uri: CAR_KONA_GLB,
     modelScale: 100.0,
-    minPixel: 450,
-    maxScale: 100.0,
     zLift: -0.125,
     yawOffsetDeg: 270,
     camScreenRightOffsetM: 0.0,
@@ -99,8 +108,6 @@ const CAR_CONFIGS = {
     name: "BENZ",
     uri: CAR_BENZ_GLB,
     modelScale: 0.25,
-    minPixel: 150,
-    maxScale: 0.5,
     zLift: -2.5,
     yawOffsetDeg: 90,
     pitchOffsetDeg: -0.25,
@@ -118,8 +125,6 @@ const CAR_CONFIGS = {
     name: "BULLI",
     uri: CAR_BULLI_GLB,
     modelScale: 0.325,
-    minPixel: 150,
-    maxScale: 0.5,
     zLift: 0.75,
     yawOffsetDeg: 270,
     pitchOffsetDeg: 90,
@@ -139,11 +144,7 @@ const CAR_CONFIGS = {
 // =====================================================
 // ✅ NAMEN statt ID
 // =====================================================
-const PLAYER_NAMES = {
-  KONA: "David",
-  BENZ: "Finn",
-  BULLI: "Tammo",
-};
+const PLAYER_NAMES = { KONA: "David", BENZ: "Finn", BULLI: "Tammo" };
 function playerLabel(carKey) {
   const n = PLAYER_NAMES[carKey] || "Spieler";
   return `${n} (${carKey})`;
@@ -164,8 +165,13 @@ let car = null;
 
 // Controls state
 const keys = {};
-window.addEventListener("keydown", (e) => (keys[e.code] = true));
-window.addEventListener("keyup", (e) => (keys[e.code] = false));
+window.addEventListener("keydown", (e) => {
+  if (isTyping()) return; // ✅ während tippen keine Steuerung
+  keys[e.code] = true;
+});
+window.addEventListener("keyup", (e) => {
+  keys[e.code] = false;
+});
 
 // =====================================================
 // ✅ AUDIO: HUPE + RADIO
@@ -190,6 +196,7 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
 function playHorn({ volume = 1.0, durationMs = 180 } = {}) {
   const ctx = getAudioCtx();
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
+
   const o1 = ctx.createOscillator();
   const o2 = ctx.createOscillator();
   const g = ctx.createGain();
@@ -446,7 +453,6 @@ ws.addEventListener("message", async (ev) => {
   if (msg.type === "join_denied") {
     joinPending = false;
     applyClassStatusToMenu();
-
     if (msg.reason === "class_taken") setMenuHint("Diese Klasse ist schon belegt. Wähle eine andere.", true);
     else if (msg.reason === "already_joined") setMenuHint("Du bist schon im Spiel.", true);
     else setMenuHint("Join abgelehnt.", true);
@@ -525,7 +531,7 @@ ws.addEventListener("message", async (ev) => {
 });
 
 // =====================================================
-// ✅ START-MENU: Klasse auswählen (nur 1x global)
+// ✅ START-MENU: Klasse auswählen
 // =====================================================
 function showCarSelectMenu() {
   if (document.getElementById("carSelectOverlay")) return;
@@ -627,7 +633,7 @@ function showCarSelectMenu() {
   const hint = document.createElement("div");
   hint.innerHTML = `<div style="margin-top:12px; opacity:.75; font-size:12px;">
       Steuerung: W/A/S/D • Kamera: Pfeile halten • REWE: <b>R</b> • Hupe: <b>E</b> • Radio: <b>Q</b> • Map: <b>M</b><br>
-      Navi: Minimap Klick setzt Ziel • Rechtsklick löscht Ziel • Große Map: Ziel per Drag+„Ziel hier“
+      Navi: Minimap Klick setzt Ziel • Rechtsklick löscht Ziel • Große Map: Ziehen + „Ziel hier“ • Spieler klicken = Follow
     </div>`;
 
   panel.appendChild(title);
@@ -663,7 +669,9 @@ let camHeightCur = 12;
 let camPitchDegCur = -20;
 let topHeightCur = 55;
 
+// Pfeiltasten: View nur solange gedrückt
 window.addEventListener("keydown", (e) => {
+  if (isTyping()) return;
   if (e.code.startsWith("Arrow")) e.preventDefault();
   const v = setHoldFromArrow(e.code);
   if (v) {
@@ -728,13 +736,12 @@ hudPlayers.style.font = "700 13px/1.25 system-ui, Arial";
 hudPlayers.style.letterSpacing = "0.2px";
 hudPlayers.style.zIndex = "9999";
 hudPlayers.style.userSelect = "none";
-hudPlayers.style.cursor = "default";
 hudPlayers.innerHTML = "Spieler: –";
 document.body.appendChild(hudPlayers);
 
-// =====================================================
+// =========================
 // MINIMAP
-// =====================================================
+// =========================
 const miniDiv = document.createElement("div");
 miniDiv.id = "miniMap";
 miniDiv.style.position = "absolute";
@@ -747,7 +754,7 @@ miniDiv.style.overflow = "hidden";
 miniDiv.style.boxShadow = "0 10px 30px rgba(0,0,0,0.35)";
 miniDiv.style.zIndex = "9998";
 miniDiv.style.border = "1px solid rgba(255,255,255,0.12)";
-miniDiv.style.pointerEvents = "auto"; // ✅ klickbar (Navi Ziel setzen)
+miniDiv.style.pointerEvents = "auto";
 document.body.appendChild(miniDiv);
 
 const miniViewer = new Cesium.Viewer("miniMap", {
@@ -845,6 +852,10 @@ function ensureMiniMe() {
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
     },
+    properties: {
+      carKey: activeCarKey,
+      kind: "me",
+    },
   });
 }
 
@@ -856,7 +867,7 @@ function clearNav() {
 }
 
 function setNavDestination(lat, lon) {
-  navFollowCarKey = null; // ✅ fix: manuelles Ziel beendet Follow
+  navFollowCarKey = null;
   navDest = { lat, lon };
 
   if (miniEntities.dest) miniViewer.entities.remove(miniEntities.dest);
@@ -880,6 +891,7 @@ function setNavDestination(lat, lon) {
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
     },
+    properties: { kind: "dest" },
   });
 
   miniEntities.route = miniViewer.entities.add({
@@ -900,8 +912,7 @@ function setNavDestination(lat, lon) {
 
 function setNavFollow(carKey) {
   navFollowCarKey = carKey;
-  // Ziel/Route wird im Renderloop automatisch auf den Spieler gesetzt
-  // wir zeigen trotzdem ein Dest-Icon, das mitwandert
+
   if (miniEntities.dest) miniViewer.entities.remove(miniEntities.dest);
   if (miniEntities.route) miniViewer.entities.remove(miniEntities.route);
 
@@ -923,6 +934,7 @@ function setNavFollow(carKey) {
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
     },
+    properties: { kind: "follow", carKey },
   });
 
   miniEntities.route = miniViewer.entities.add({
@@ -944,6 +956,7 @@ function setNavFollow(carKey) {
 // Minimap: Klick setzt Ziel, Rechtsklick löscht Ziel
 const miniHandler = new Cesium.ScreenSpaceEventHandler(miniViewer.canvas);
 miniHandler.setInputAction((movement) => {
+  if (isTyping()) return;
   const p = miniViewer.camera.pickEllipsoid(movement.position, miniViewer.scene.globe.ellipsoid);
   if (!p) return;
   const c = Cesium.Cartographic.fromCartesian(p);
@@ -957,12 +970,14 @@ miniHandler.setInputAction(() => {
 }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 
 // =====================================================
-// ✅ GROßE MAP (M): Adresse suchen, ziehen, Ziel festlegen, Spieler anklicken/follow
+// ✅ GROßE MAP (M): Adresse suchen, Ziel Mitte setzen, Spieler klicken = Follow
 // =====================================================
 let mapOverlay = null;
 let mapViewer = null;
-let mapCross = null;
 let mapMsg = null;
+
+const mapEntities = { me: null, dest: null };
+const mapRemoteEntities = new Map(); // carKey -> entity
 
 function ensureMapOverlay() {
   if (mapOverlay) return;
@@ -990,15 +1005,16 @@ function ensureMapOverlay() {
 
   const topbar = document.createElement("div");
   topbar.style.display = "flex";
-  topbar.style.gap = "10px";
+  topbar.style.gap = "12px";
   topbar.style.alignItems = "center";
-  topbar.style.padding = "12px";
+  // ✅ minimal mehr Abstand zwischen Eingabe und Karte:
+  topbar.style.padding = "16px 12px 14px";
   topbar.style.borderBottom = "1px solid rgba(255,255,255,0.12)";
   topbar.style.color = "white";
   topbar.style.font = "700 14px system-ui, Arial";
 
   const title = document.createElement("div");
-  title.textContent = "Map / Navi (M zum Schließen)";
+  title.textContent = "Map / Navi (M zum Schließen, ESC geht immer)";
   title.style.opacity = "0.95";
   title.style.flex = "0 0 auto";
 
@@ -1013,45 +1029,23 @@ function ensureMapOverlay() {
   input.style.outline = "none";
   input.style.font = "700 14px system-ui, Arial";
 
-  const btnSearch = document.createElement("button");
-  btnSearch.textContent = "Suchen";
-  btnSearch.style.padding = "10px 12px";
-  btnSearch.style.borderRadius = "12px";
-  btnSearch.style.border = "1px solid rgba(255,255,255,0.18)";
-  btnSearch.style.background = "rgba(255,255,255,0.10)";
-  btnSearch.style.color = "white";
-  btnSearch.style.cursor = "pointer";
-  btnSearch.style.font = "800 14px system-ui, Arial";
+  const mkBtn = (label, strong = false) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.style.padding = "10px 12px";
+    b.style.borderRadius = "12px";
+    b.style.border = "1px solid rgba(255,255,255,0.18)";
+    b.style.background = strong ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.08)";
+    b.style.color = "white";
+    b.style.cursor = "pointer";
+    b.style.font = "900 14px system-ui, Arial";
+    return b;
+  };
 
-  const btnSet = document.createElement("button");
-  btnSet.textContent = "Ziel hier (Mitte)";
-  btnSet.style.padding = "10px 12px";
-  btnSet.style.borderRadius = "12px";
-  btnSet.style.border = "1px solid rgba(255,255,255,0.18)";
-  btnSet.style.background = "rgba(255,255,255,0.14)";
-  btnSet.style.color = "white";
-  btnSet.style.cursor = "pointer";
-  btnSet.style.font = "900 14px system-ui, Arial";
-
-  const btnClear = document.createElement("button");
-  btnClear.textContent = "Ziel löschen";
-  btnClear.style.padding = "10px 12px";
-  btnClear.style.borderRadius = "12px";
-  btnClear.style.border = "1px solid rgba(255,255,255,0.18)";
-  btnClear.style.background = "rgba(255,255,255,0.06)";
-  btnClear.style.color = "white";
-  btnClear.style.cursor = "pointer";
-  btnClear.style.font = "800 14px system-ui, Arial";
-
-  const btnClose = document.createElement("button");
-  btnClose.textContent = "Schließen";
-  btnClose.style.padding = "10px 12px";
-  btnClose.style.borderRadius = "12px";
-  btnClose.style.border = "1px solid rgba(255,255,255,0.18)";
-  btnClose.style.background = "rgba(255,255,255,0.06)";
-  btnClose.style.color = "white";
-  btnClose.style.cursor = "pointer";
-  btnClose.style.font = "800 14px system-ui, Arial";
+  const btnSearch = mkBtn("Suchen");
+  const btnSet = mkBtn("Ziel hier (Mitte)", true);
+  const btnClear = mkBtn("Ziel löschen");
+  const btnClose = mkBtn("Schließen");
 
   topbar.appendChild(title);
   topbar.appendChild(input);
@@ -1064,7 +1058,8 @@ function ensureMapOverlay() {
   body.style.position = "absolute";
   body.style.left = "0";
   body.style.right = "0";
-  body.style.top = "52px";
+  // ✅ mehr Abstand unter Topbar:
+  body.style.top = "72px";
   body.style.bottom = "0";
   body.style.display = "grid";
   body.style.gridTemplateColumns = "1fr 280px";
@@ -1080,8 +1075,8 @@ function ensureMapOverlay() {
   mapDiv.style.inset = "0";
   mapWrap.appendChild(mapDiv);
 
-  // Crosshair (Center)
-  mapCross = document.createElement("div");
+  // Crosshair
+  const mapCross = document.createElement("div");
   mapCross.style.position = "absolute";
   mapCross.style.left = "50%";
   mapCross.style.top = "50%";
@@ -1106,7 +1101,7 @@ function ensureMapOverlay() {
   mapMsg.style.color = "white";
   mapMsg.style.font = "700 12px system-ui, Arial";
   mapMsg.style.opacity = "0.85";
-  mapMsg.textContent = "Ziehen = Karte bewegen • Mausrad = Zoom • „Ziel hier“ setzt Ziel";
+  mapMsg.textContent = "Ziehen = Karte bewegen • Mausrad = Zoom • „Ziel hier“ setzt Ziel • Spieler-Marker anklicken = Follow";
   mapWrap.appendChild(mapMsg);
 
   // Sidebar: Spieler anklicken -> Follow
@@ -1137,7 +1132,7 @@ function ensureMapOverlay() {
   mapOverlay.appendChild(panel);
   document.body.appendChild(mapOverlay);
 
-  // Cesium Map Viewer (interaktiv)
+  // Cesium Map Viewer
   mapViewer = new Cesium.Viewer("bigMapCesium", {
     terrain: Cesium.Terrain.fromWorldTerrain(),
     timeline: false,
@@ -1155,7 +1150,7 @@ function ensureMapOverlay() {
   });
   mapViewer.scene.globe.depthTestAgainstTerrain = true;
 
-  // Wie "Karte": kein rotate/tilt, aber translate+zoom erlauben
+  // "Karte": kein rotate/tilt
   const c = mapViewer.scene.screenSpaceCameraController;
   c.enableRotate = false;
   c.enableTilt = false;
@@ -1178,26 +1173,36 @@ function ensureMapOverlay() {
     }
   })();
 
+  // ✅ Spieler-Marker auf BIG MAP anklickbar machen (Fix)
+  const mapPickHandler = new Cesium.ScreenSpaceEventHandler(mapViewer.canvas);
+  mapPickHandler.setInputAction((movement) => {
+    const picked = mapViewer.scene.pick(movement.position);
+    if (!Cesium.defined(picked) || !picked.id || !picked.id.properties) return;
+
+    const kind = picked.id.properties.kind?.getValue?.() ?? picked.id.properties.kind;
+    const ck = picked.id.properties.carKey?.getValue?.() ?? picked.id.properties.carKey;
+
+    if (kind === "remote" && ck) {
+      setNavFollow(ck);
+      mapMsg.textContent = `FOLLOW gesetzt: ${playerLabel(ck)}`;
+      mapOverlay.__refreshPlayers?.();
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
   function refreshBigMapPlayers() {
     const list = document.getElementById("bigMapPlayersList");
     if (!list) return;
     list.innerHTML = "";
 
-    // Ich
     if (joinAccepted) {
-      const meBtn = document.createElement("button");
-      meBtn.textContent = `🟦 ${playerLabel(activeCarKey)} (DU)`;
-      meBtn.style.padding = "10px 10px";
-      meBtn.style.borderRadius = "12px";
-      meBtn.style.border = "1px solid rgba(255,255,255,0.16)";
-      meBtn.style.background = "rgba(255,255,255,0.06)";
-      meBtn.style.color = "white";
-      meBtn.style.font = "900 13px system-ui, Arial";
-      meBtn.style.cursor = "default";
-      list.appendChild(meBtn);
+      const me = document.createElement("div");
+      me.textContent = `🟦 ${playerLabel(activeCarKey)} (DU)`;
+      me.style.opacity = "0.9";
+      me.style.marginBottom = "6px";
+      list.appendChild(me);
     }
 
-    // Andere: carKey ist einzigartig (Klassenlocks)
+    // unique carKeys
     const seen = new Set();
     for (const [, rp] of remotePlayers) {
       const ck = rp.cfgKey;
@@ -1205,7 +1210,7 @@ function ensureMapOverlay() {
       seen.add(ck);
 
       const btn = document.createElement("button");
-      btn.textContent = `🟧 ${playerLabel(ck)}`;
+      btn.textContent = `🟧 ${playerLabel(ck)}${navFollowCarKey === ck ? " • FOLLOW" : ""}`;
       btn.style.padding = "10px 10px";
       btn.style.borderRadius = "12px";
       btn.style.border = "1px solid rgba(255,255,255,0.16)";
@@ -1216,7 +1221,6 @@ function ensureMapOverlay() {
 
       btn.onclick = () => {
         setNavFollow(ck);
-        // Karte auf Spieler zentrieren
         const rp2 = [...remotePlayers.values()].find((x) => x.cfgKey === ck);
         if (rp2) {
           mapViewer.camera.flyTo({
@@ -1224,8 +1228,10 @@ function ensureMapOverlay() {
             duration: 0.35,
           });
         }
+        mapMsg.textContent = `FOLLOW gesetzt: ${playerLabel(ck)}`;
         refreshBigMapPlayers();
       };
+
       list.appendChild(btn);
     }
 
@@ -1240,14 +1246,8 @@ function ensureMapOverlay() {
   }
 
   async function geocodeAddress(q) {
-    // Nominatim (OSM) - funktioniert in vielen Fällen direkt (CORS kann je nach Hosting/Browser zicken)
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
-    const res = await fetch(url, {
-      headers: {
-        // kein echter UA im Browser möglich; Referer reicht meistens
-        "Accept": "application/json",
-      },
-    });
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error("Geocoding HTTP " + res.status);
     const data = await res.json();
     if (!data || !data[0]) return null;
@@ -1278,10 +1278,11 @@ function ensureMapOverlay() {
   btnSearch.onclick = doSearch;
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") doSearch();
+    // ✅ verhindert, dass Enter etc. global Aktionen triggert
+    e.stopPropagation();
   });
 
   btnSet.onclick = () => {
-    // Ziel = Mitte der großen Map (Crosshair)
     const canvas = mapViewer.canvas;
     const center = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
     const ellipsoid = mapViewer.scene.globe.ellipsoid;
@@ -1307,7 +1308,6 @@ function ensureMapOverlay() {
 
   btnClose.onclick = () => toggleBigMap(false);
 
-  // Expose refresher
   mapOverlay.__refreshPlayers = refreshBigMapPlayers;
 }
 
@@ -1317,7 +1317,6 @@ function toggleBigMap(force) {
   mapOverlay.style.display = show ? "block" : "none";
 
   if (show) {
-    // auf aktuelle Position zentrieren
     const lat = joinAccepted ? carLat : startLat;
     const lon = joinAccepted ? carLon : startLon;
     mapViewer.camera.flyTo({
@@ -1329,10 +1328,16 @@ function toggleBigMap(force) {
 }
 
 // =====================================================
-// INPUT (R/E/Q/M und Minimap Zoom Keys)
+// INPUT (R/E/Q/M + Zoom Keys) — ✅ geblockt beim Tippen
 // =====================================================
 window.addEventListener("keydown", (e) => {
-  // Pfeile wurden oben behandelt
+  // ESC soll IMMER Map schließen
+  if (e.code === "Escape") {
+    if (mapOverlay && mapOverlay.style.display !== "none") toggleBigMap(false);
+    return;
+  }
+
+  if (isTyping()) return; // ✅ alles blocken während tippen
   if (e.repeat) return;
 
   if (e.code === "KeyR") {
@@ -1360,7 +1365,6 @@ window.addEventListener("keydown", (e) => {
     toggleBigMap();
   }
 
-  // Minimap zoom keys
   if (isPlusKey(e)) {
     miniAutoZoom = false;
     miniManualHeight = Math.max(MINI_MIN_H, miniManualHeight * 0.85);
@@ -1381,37 +1385,33 @@ window.addEventListener("keydown", (e) => {
 function updatePlayerListHud() {
   const total = (joinAccepted ? 1 : 0) + remotePlayers.size;
 
-  // clickable list
   const lines = [];
-  if (joinAccepted) lines.push(`<span style="cursor:default">🟦 ${playerLabel(activeCarKey)} (DU)</span>`);
-  else lines.push(`<span style="opacity:.7">🟦 Du (nicht verbunden)</span>`);
+  if (joinAccepted) lines.push(`<div style="cursor:default">🟦 ${playerLabel(activeCarKey)} (DU)</div>`);
+  else lines.push(`<div style="opacity:.7">🟦 Du (nicht verbunden)</div>`);
 
-  // Unique per carKey
   const seen = new Set();
   for (const [, rp] of remotePlayers) {
     const ck = rp.cfgKey || "???";
     if (seen.has(ck)) continue;
     seen.add(ck);
-
     const isFollow = navFollowCarKey === ck;
-    const style = `cursor:pointer; ${isFollow ? "color:#b8ffb8" : ""}`;
     lines.push(
-      `<span data-follow="${ck}" style="${style}">🟧 ${playerLabel(ck)}${isFollow ? " • FOLLOW" : ""}</span>`
+      `<div data-follow="${ck}" style="cursor:pointer; ${isFollow ? "color:#b8ffb8" : ""}">
+        🟧 ${playerLabel(ck)}${isFollow ? " • FOLLOW" : ""}
+      </div>`
     );
   }
 
   hudPlayers.innerHTML =
     `<div style="opacity:.9">Spieler (${total})</div>` +
-    `<div style="margin-top:6px; display:grid; gap:4px;">${lines.join("")}</div>` +
-    `<div style="margin-top:8px; opacity:.65; font-size:11px;">Tipp: Klick auf Spieler = Follow-Ziel • Rechtsklick Minimap = Ziel löschen</div>`;
+    `<div style="margin-top:6px; display:grid; gap:4px;">${lines.join("")}</div>`;
 
-  // attach click handlers
   hudPlayers.querySelectorAll("[data-follow]").forEach((el) => {
     el.onclick = () => {
+      if (isTyping()) return;
       const ck = el.getAttribute("data-follow");
       if (!ck || ck === "???") return;
       setNavFollow(ck);
-      // optional: big map list refresh
       mapOverlay?.__refreshPlayers?.();
     };
   });
@@ -1448,8 +1448,7 @@ viewer.scene.postRender.addEventListener(() => {
   lastTime = now;
 
   // Params
-  const vmaxDisplayKmh = VMAX_KMH;
-  const maxSpeed = (vmaxDisplayKmh / 3.6) * SPEED_FEEL_SCALE;
+  const maxSpeed = (VMAX_KMH / 3.6) * SPEED_FEEL_SCALE;
   const reverseMax = 9.5;
 
   const engineAccel = (27.78 * SPEED_FEEL_SCALE) / 4.0;
@@ -1461,9 +1460,9 @@ viewer.scene.postRender.addEventListener(() => {
   const pressingS = !!keys["KeyS"];
   const noPedals = !pressingW && !pressingS;
 
-  if (noPedals && isStopped()) speed = 0;
+  if (noPedals && Math.abs(speed) < 0.25) speed = 0;
 
-  if (isStopped()) {
+  if (Math.abs(speed) < 0.25) {
     if (!pressingS) sArmed = true;
     if (!pressingW) wArmed = true;
   } else {
@@ -1472,50 +1471,32 @@ viewer.scene.postRender.addEventListener(() => {
   }
 
   if (gear === "D") {
-    if (isStopped() && sArmed && pressingS) {
+    if (Math.abs(speed) < 0.25 && sArmed && pressingS) {
       gear = "R";
       sArmed = false;
       wArmed = false;
       speed = 0;
     }
 
-    if (pressingW) {
-      speed = Math.max(0, speed);
-      speed += engineAccel * dt;
-    } else if (pressingS) {
-      const v = Math.max(0, speed);
-      speed = Math.max(0, v - brakeDecel * dt);
-      if (isStopped()) speed = 0;
-    } else {
-      const v = Math.max(0, speed);
-      speed = Math.max(0, v - rollDecel * dt);
-      if (isStopped()) speed = 0;
-    }
+    if (pressingW) speed = Math.max(0, speed) + engineAccel * dt;
+    else if (pressingS) speed = Math.max(0, Math.max(0, speed) - brakeDecel * dt);
+    else speed = Math.max(0, Math.max(0, speed) - rollDecel * dt);
 
+    if (Math.abs(speed) < 0.25 && noPedals) speed = 0;
     speed = Math.min(maxSpeed, Math.max(0, speed));
   } else {
-    if (isStopped() && wArmed && pressingW) {
+    if (Math.abs(speed) < 0.25 && wArmed && pressingW) {
       gear = "D";
       wArmed = false;
       sArmed = false;
       speed = 0;
     }
 
-    if (pressingS) {
-      speed = Math.min(0, speed);
-      speed -= engineAccel * dt;
-    } else if (pressingW) {
-      const v = Math.max(0, -speed);
-      const nv = Math.max(0, v - brakeDecel * dt);
-      speed = -nv;
-      if (isStopped()) speed = 0;
-    } else {
-      const v = Math.max(0, -speed);
-      const nv = Math.max(0, v - rollDecel * dt);
-      speed = -nv;
-      if (isStopped()) speed = 0;
-    }
+    if (pressingS) speed = Math.min(0, speed) - engineAccel * dt;
+    else if (pressingW) speed = -Math.max(0, Math.max(0, -speed) - brakeDecel * dt);
+    else speed = -Math.max(0, Math.max(0, -speed) - rollDecel * dt);
 
+    if (Math.abs(speed) < 0.25 && noPedals) speed = 0;
     speed = Math.max(-reverseMax, Math.min(0, speed));
   }
 
@@ -1524,19 +1505,20 @@ viewer.scene.postRender.addEventListener(() => {
     const drag = dragK * vAbs * vAbs;
     const nv = Math.max(0, vAbs - drag * dt);
     speed = Math.sign(speed) * nv;
-    if (noPedals && isStopped()) speed = 0;
+    if (noPedals && Math.abs(speed) < 0.25) speed = 0;
   }
 
-  // Steering
   const kmhDisplay = (Math.abs(speed) / SPEED_FEEL_SCALE) * 3.6;
 
+  // Steering
   if (kmhDisplay > 1.0) {
     const t = Cesium.Math.clamp(kmhDisplay / VMAX_KMH, 0.0, 1.0);
+    const tMid = Cesium.Math.clamp(kmhDisplay / 60.0, 0.0, 1.0);
+
     const steerLow = 1.15;
     const steerMid = 0.8;
     const steerHigh = 0.3;
 
-    const tMid = Cesium.Math.clamp(kmhDisplay / 60.0, 0.0, 1.0);
     const steerA = steerLow + (steerMid - steerLow) * tMid;
     const steerRate = steerA + (steerHigh - steerA) * t;
 
@@ -1549,11 +1531,8 @@ viewer.scene.postRender.addEventListener(() => {
   const dx = Math.sin(heading) * forwardMeters;
   const dy = Math.cos(heading) * forwardMeters;
 
-  const dLat = dy / metersPerDegLat;
-  const dLon = dx / metersPerDegLon(carLat);
-
-  carLat += dLat;
-  carLon += dLon;
+  carLat += dy / metersPerDegLat;
+  carLon += dx / metersPerDegLon(carLat);
 
   // Height sampling
   heightTimer += dt;
@@ -1563,21 +1542,19 @@ viewer.scene.postRender.addEventListener(() => {
   }
   const groundH = heightReady ? carHeight : (getHeightFallback() ?? 0);
 
-  // Car position
+  // Car position/orientation
   const pos = Cesium.Cartesian3.fromDegrees(carLon, carLat, groundH + activeCfg.zLift);
   car.position = pos;
 
-  // Car orientation
-  const modelYawOffset = Cesium.Math.toRadians(activeCfg.yawOffsetDeg ?? 0);
-  const modelPitchOffset = Cesium.Math.toRadians(activeCfg.pitchOffsetDeg ?? 0);
-  const modelRollOffset = Cesium.Math.toRadians(activeCfg.rollOffsetDeg ?? 0);
-
-  const hpr = new Cesium.HeadingPitchRoll(heading + modelYawOffset, modelPitchOffset, modelRollOffset);
+  const hpr = new Cesium.HeadingPitchRoll(
+    heading + Cesium.Math.toRadians(activeCfg.yawOffsetDeg ?? 0),
+    Cesium.Math.toRadians(activeCfg.pitchOffsetDeg ?? 0),
+    Cesium.Math.toRadians(activeCfg.rollOffsetDeg ?? 0)
+  );
   car.orientation = Cesium.Transforms.headingPitchRollQuaternion(pos, hpr);
 
   // Camera dynamics
   const tCam = Cesium.Math.clamp(kmhDisplay / VMAX_KMH, 0.0, 1.0);
-
   const camDistTarget = activeCfg.camRearDistBase + activeCfg.camRearDistAdd * tCam;
   const camHeightTarget = activeCfg.camHeightBase + activeCfg.camHeightAdd * tCam;
   const camPitchDegTarget = activeCfg.camPitchBaseDeg + activeCfg.camPitchAddDeg * tCam;
@@ -1596,7 +1573,6 @@ viewer.scene.postRender.addEventListener(() => {
 
   let camLon = carLon;
   let camLat = carLat;
-
   let camHeading = heading;
   let camPitch = Cesium.Math.toRadians(camPitchDegCur);
   let camHeight = camHeightCur;
@@ -1605,7 +1581,6 @@ viewer.scene.postRender.addEventListener(() => {
     camHeight = topHeightCur;
     camPitch = Cesium.Math.toRadians(-90);
     camHeading = heading;
-
     camLon = carLon + strafeX / metersPerDegLon(carLat);
     camLat = carLat + strafeY / metersPerDegLat;
   } else {
@@ -1635,10 +1610,8 @@ viewer.scene.postRender.addEventListener(() => {
     camLat = carLat + (offCY + strafeY) / metersPerDegLat;
   }
 
-  const camPos = Cesium.Cartesian3.fromDegrees(camLon, camLat, groundH + camHeight);
-
   viewer.camera.setView({
-    destination: camPos,
+    destination: Cesium.Cartesian3.fromDegrees(camLon, camLat, groundH + camHeight),
     orientation: { heading: camHeading, pitch: camPitch, roll: 0 },
   });
 
@@ -1655,24 +1628,19 @@ viewer.scene.postRender.addEventListener(() => {
     orientation: { heading: heading, pitch: Cesium.Math.toRadians(-90), roll: 0 },
   });
 
-  // =========================
   // NETWORK SEND (10 Hz)
-  // =========================
   netTimer += dt;
   if (netTimer > 0.1) {
     netTimer = 0;
     sendMyState();
   }
 
-  // =========================
-  // REMOTE CARS SMOOTH
-  // =========================
-  for (const [, rp] of remotePlayers) {
+  // REMOTE SMOOTH
+  for (const [id, rp] of remotePlayers) {
     const t = rp.target;
     if (!t) continue;
 
     const alpha2 = 0.18;
-
     rp.curLat += (t.lat - rp.curLat) * alpha2;
     rp.curLon += (t.lon - rp.curLon) * alpha2;
 
@@ -1690,50 +1658,39 @@ viewer.scene.postRender.addEventListener(() => {
     const ppos = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, groundRemote + (cfg.zLift ?? 0));
     rp.entity.position = ppos;
 
-    const myo = Cesium.Math.toRadians(cfg.yawOffsetDeg ?? 0);
-    const mpo = Cesium.Math.toRadians(cfg.pitchOffsetDeg ?? 0);
-    const mro = Cesium.Math.toRadians(cfg.rollOffsetDeg ?? 0);
-    const rhpr = new Cesium.HeadingPitchRoll(rp.curHeading + myo, mpo, mro);
-
+    const rhpr = new Cesium.HeadingPitchRoll(
+      rp.curHeading + Cesium.Math.toRadians(cfg.yawOffsetDeg ?? 0),
+      Cesium.Math.toRadians(cfg.pitchOffsetDeg ?? 0),
+      Cesium.Math.toRadians(cfg.rollOffsetDeg ?? 0)
+    );
     rp.entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(ppos, rhpr);
   }
 
-  // =========================
   // ✅ NAV FOLLOW: Ziel = Spielerposition
-  // =========================
   if (navFollowCarKey) {
     const rp = [...remotePlayers.values()].find((x) => x.cfgKey === navFollowCarKey);
     if (rp) {
       navDest = { lat: rp.curLat, lon: rp.curLon };
-      // dest-marker mitziehen (lime)
-      if (miniEntities.dest) {
-        miniEntities.dest.position = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
-      }
+      if (miniEntities.dest) miniEntities.dest.position = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
+      if (mapEntities.dest) mapEntities.dest.position = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
     } else {
-      // Spieler weg -> Follow stoppen
       navFollowCarKey = null;
     }
   }
 
-  // =========================
-  // ✅ MINIMAP: ME + REMOTES
-  // =========================
+  // ✅ MINIMAP: ME + REMOTES MARKER
   ensureMiniMe();
   if (miniEntities.me) {
     miniEntities.me.position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 0);
     if (miniEntities.me.label) miniEntities.me.label.text = playerLabel(activeCarKey);
+    if (miniEntities.me.properties?.carKey?.setValue) miniEntities.me.properties.carKey.setValue(activeCarKey);
   }
 
   for (const [id, rp] of remotePlayers) {
     if (!miniRemoteEntities.has(id)) {
       const ent = miniViewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
-        point: {
-          pixelSize: 9,
-          color: Cesium.Color.ORANGE,
-          outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
-          outlineWidth: 2,
-        },
+        point: { pixelSize: 9, color: Cesium.Color.ORANGE, outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
         label: {
           text: playerLabel(rp.cfgKey || "???"),
           font: "800 11px system-ui",
@@ -1744,12 +1701,14 @@ viewer.scene.postRender.addEventListener(() => {
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
+        properties: { kind: "remote", carKey: rp.cfgKey || "???" },
       });
       miniRemoteEntities.set(id, ent);
     }
     const ent = miniRemoteEntities.get(id);
     ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
     if (ent.label) ent.label.text = playerLabel(rp.cfgKey || "???");
+    if (ent.properties?.carKey?.setValue) ent.properties.carKey.setValue(rp.cfgKey || "???");
   }
 
   for (const [id, ent] of miniRemoteEntities) {
@@ -1759,9 +1718,103 @@ viewer.scene.postRender.addEventListener(() => {
     }
   }
 
-  // =========================
-  // ✅ HUD: Speed + NAV Distanz
-  // =========================
+  // ✅ BIG MAP: Marker updaten (wenn offen)
+  if (mapOverlay && mapOverlay.style.display !== "none" && mapViewer) {
+    // me
+    if (!mapEntities.me) {
+      mapEntities.me = mapViewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
+        point: { pixelSize: 10, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
+        label: {
+          text: `${playerLabel(activeCarKey)} (DU)`,
+          font: "800 12px system-ui",
+          pixelOffset: new Cesium.Cartesian2(0, -18),
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        properties: { kind: "me", carKey: activeCarKey },
+      });
+    } else {
+      mapEntities.me.position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 0);
+      if (mapEntities.me.label) mapEntities.me.label.text = `${playerLabel(activeCarKey)} (DU)`;
+      if (mapEntities.me.properties?.carKey?.setValue) mapEntities.me.properties.carKey.setValue(activeCarKey);
+    }
+
+    // remotes (pro carKey unique)
+    const activeCarKeys = new Set();
+    for (const [, rp] of remotePlayers) {
+      const ck = rp.cfgKey;
+      if (!ck) continue;
+      activeCarKeys.add(ck);
+
+      if (!mapRemoteEntities.has(ck)) {
+        const ent = mapViewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
+          point: { pixelSize: 10, color: Cesium.Color.ORANGE, outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
+          label: {
+            text: playerLabel(ck),
+            font: "800 12px system-ui",
+            pixelOffset: new Cesium.Cartesian2(0, -18),
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          properties: { kind: "remote", carKey: ck },
+        });
+        mapRemoteEntities.set(ck, ent);
+      } else {
+        const ent = mapRemoteEntities.get(ck);
+        ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
+        if (ent.label) ent.label.text = playerLabel(ck);
+        if (ent.properties?.carKey?.setValue) ent.properties.carKey.setValue(ck);
+      }
+    }
+
+    // entfernte remotes löschen
+    for (const [ck, ent] of mapRemoteEntities) {
+      if (!activeCarKeys.has(ck)) {
+        mapViewer.entities.remove(ent);
+        mapRemoteEntities.delete(ck);
+      }
+    }
+
+    // dest marker
+    if (navDest) {
+      if (!mapEntities.dest) {
+        mapEntities.dest = mapViewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0),
+          point: { pixelSize: 10, color: navFollowCarKey ? Cesium.Color.LIME : Cesium.Color.YELLOW, outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
+          label: {
+            text: navFollowCarKey ? `FOLLOW: ${playerLabel(navFollowCarKey)}` : "ZIEL",
+            font: "900 12px system-ui",
+            pixelOffset: new Cesium.Cartesian2(0, -18),
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          properties: { kind: "dest" },
+        });
+      } else {
+        mapEntities.dest.position = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
+        if (mapEntities.dest.point) mapEntities.dest.point.color = navFollowCarKey ? Cesium.Color.LIME : Cesium.Color.YELLOW;
+        if (mapEntities.dest.label) mapEntities.dest.label.text = navFollowCarKey ? `FOLLOW: ${playerLabel(navFollowCarKey)}` : "ZIEL";
+      }
+    } else if (mapEntities.dest) {
+      mapViewer.entities.remove(mapEntities.dest);
+      mapEntities.dest = null;
+    }
+
+    mapOverlay.__refreshPlayers?.();
+  }
+
+  // HUD Speed + NAV Distanz
   let navText = "";
   if (navDest) {
     const d = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
@@ -1771,11 +1824,5 @@ viewer.scene.postRender.addEventListener(() => {
   const followText = navFollowCarKey ? ` • FOLLOW: ${playerLabel(navFollowCarKey)}` : "";
   hudSpeed.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  ${who}${navText}${followText}`;
 
-  // ✅ Spieler-Liste aktualisieren
   updatePlayerListHud();
-
-  // ✅ Big Map Sidebar aktualisieren (wenn offen)
-  if (mapOverlay && mapOverlay.style.display !== "none") {
-    mapOverlay.__refreshPlayers?.();
-  }
 });
