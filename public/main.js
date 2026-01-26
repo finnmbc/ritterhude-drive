@@ -5,7 +5,7 @@
 // =====================================================
 // ⚠️ Sicherheits-Tipp: Token besser nicht öffentlich teilen.
 // Hier als Platzhalter – setz deinen Token wieder ein:
-Cesium.Ion.defaultAccessToken = "PASTE_YOUR_CESIUM_ION_TOKEN_HERE";
+Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxMmQ3Yjg4Yy1kNjM1LTQxNmMtOTY0Ny0zZTQ1Zjc3ZmFmZDkiLCJpZCI6MzgzMTIzLCJpYXQiOjE3NjkzMzAwNjl9.c43M7EsxX_pY7z9RndXbP6y9QiKqR5ST3a7nlT8Tk90";
 
 // alte HUDs entfernen
 document.querySelectorAll(".hud").forEach((el) => el.remove());
