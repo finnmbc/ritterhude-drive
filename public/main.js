@@ -807,7 +807,7 @@ miniCross.style.boxShadow = "0 0 10px rgba(0,0,0,0.45)";
 miniCross.style.pointerEvents = "none";
 miniDiv.appendChild(miniCross);
 
-// ✅ Minimap Ziel: wenn außerhalb -> Pfeil am Rand; wenn drin -> Zielpunkt
+// ✅ Minimap Ziel: wenn außerhalb -> Pfeil am Rand; wenn drin -> Zielpunkt (plus grüner Pfeil zeigt auf Auto)
 const miniNav = { destEnt: null, arrowEl: null };
 (function initMiniNavArrow() {
   const el = document.createElement("div");
@@ -1052,6 +1052,11 @@ function ensureMapOverlay() {
   ctrl.enableLook = false;
   ctrl.enableZoom = true;
   ctrl.enableTranslate = true;
+
+  // ✅ Linke Maustaste ziehen = verschieben
+  if (ctrl.translateEventTypes && Cesium.CameraEventType) {
+    ctrl.translateEventTypes = Cesium.CameraEventType.LEFT_DRAG;
+  }
 
   (async () => {
     try {
@@ -1581,6 +1586,15 @@ viewer.scene.postRender.addEventListener(() => {
     }
   }
 
+  // ✅ Wenn innerhalb 0.1km -> Ziel löschen (wie "angekommen")
+  if (navDest && Number.isFinite(navDest.lat) && Number.isFinite(navDest.lon)) {
+    const dArr = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
+    if (dArr <= 100) {
+      clearNav();
+      playersDirtyForUi = true;
+    }
+  }
+
   // ======= MINIMAP MARKERS =======
   ensureMiniMe();
   miniEntities.me.position = Cesium.Cartesian3.fromDegrees(carLon, carLat, 0);
@@ -1646,9 +1660,29 @@ viewer.scene.postRender.addEventListener(() => {
       const inside = win.x >= margin && win.x <= w - margin && win.y >= margin && win.y <= h - margin;
 
       if (inside) {
+        // ✅ Ziel ist im Sichtfeld
         miniNav.destEnt.show = true;
-        if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
+
+        if (navFollowCarKey) {
+          // ✅ grüner Pfeil auf das Auto (Center) zeigen lassen
+          const cx = w / 2;
+          const cy = h / 2;
+          const dx2 = cx - win.x;
+          const dy2 = cy - win.y;
+          const ang = Math.atan2(dy2, dx2) + Math.PI / 2;
+
+          if (miniNav.arrowEl) {
+            miniNav.arrowEl.style.display = "block";
+            miniNav.arrowEl.style.left = `${win.x}px`;
+            miniNav.arrowEl.style.top = `${win.y}px`;
+            miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${ang}rad)`;
+            miniNav.arrowEl.style.borderBottomColor = "rgba(180,255,180,0.95)";
+          }
+        } else {
+          if (miniNav.arrowEl) miniNav.arrowEl.style.display = "none";
+        }
       } else {
+        // ✅ Ziel ist außerhalb -> Randpfeil Richtung Ziel
         miniNav.destEnt.show = false;
 
         const cx = w / 2;
@@ -1673,7 +1707,6 @@ viewer.scene.postRender.addEventListener(() => {
           miniNav.arrowEl.style.left = `${px}px`;
           miniNav.arrowEl.style.top = `${py}px`;
           miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${ang}rad)`;
-          // Farbe passend zu Follow/Manual
           miniNav.arrowEl.style.borderBottomColor = navFollowCarKey
             ? "rgba(180,255,180,0.95)"
             : "rgba(255,255,255,0.95)";
@@ -1707,6 +1740,7 @@ viewer.scene.postRender.addEventListener(() => {
           outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
       });
     } else {
@@ -1737,6 +1771,7 @@ viewer.scene.postRender.addEventListener(() => {
             outlineColor: Cesium.Color.BLACK,
             outlineWidth: 3,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
         });
         mapRemoteEntities.set(ck, ent);
@@ -1772,6 +1807,7 @@ viewer.scene.postRender.addEventListener(() => {
             outlineColor: Cesium.Color.BLACK,
             outlineWidth: 3,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
         });
       } else {
