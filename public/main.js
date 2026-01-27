@@ -1364,7 +1364,10 @@ function ensureMapOverlay() {
     }
   }
 
-  btnSearch.onclick = doSearch;
+  btnSearch.onclick = () => {
+    bigMapCenterFollowKey = null;
+    doSearch();
+  };
 
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") doSearch();
@@ -1377,7 +1380,17 @@ function ensureMapOverlay() {
     e.stopPropagation();
   });
 
+  function stopCentering() {
+    if (bigMapCenterFollowKey) bigMapCenterFollowKey = null;
+  }
+
+  // ✅ sobald man in der Suche tippt / fokussiert: Zentrieren AUS
+  input.addEventListener("focus", stopCentering);
+  input.addEventListener("input", stopCentering);
+  input.addEventListener("keydown", stopCentering); // optional, aber zuverlässig
+
   btnSet.onclick = () => {
+    bigMapCenterFollowKey = null;
     const canvas = mapViewer.canvas;
     const center = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
     const p = mapViewer.camera.pickEllipsoid(center, mapViewer.scene.globe.ellipsoid);
@@ -1395,6 +1408,7 @@ function ensureMapOverlay() {
   };
 
   btnClear.onclick = () => {
+    bigMapCenterFollowKey = null; // ✅ Zentrieren AUS
     clearNav();
     mapMsg.textContent = "Ziel gelöscht.";
     playersDirtyForUi = true;
