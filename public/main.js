@@ -385,6 +385,42 @@ function isStopped() {
   return Math.abs(speed) < 0.25;
 }
 
+function updateMiniNavArrow() {
+  if (!miniNav.arrowEl) return;
+
+  // Nur zeigen wenn Ziel existiert
+  if (!navDest || !Number.isFinite(navDest.lat) || !Number.isFinite(navDest.lon)) {
+    miniNav.arrowEl.style.display = "none";
+    return;
+  }
+
+  // Bearing Auto -> Ziel
+  const brg = bearingRad(carLat, carLon, navDest.lat, navDest.lon);
+
+  // Pfeil an den Rand setzen (unten mittig ist oft nice)
+  const pad = 16;
+  const w = miniDiv.clientWidth;
+  const h = miniDiv.clientHeight;
+
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+
+  // Richtung als Vektor (screen space: y nach unten)
+  const dx = Math.sin(brg);
+  const dy = -Math.cos(brg);
+
+  // Pfeilposition: am Rand (Kreis/ellipse)
+  const r = Math.min(w, h) * 0.45 - pad;
+  const x = cx + dx * r;
+  const y = cy + dy * r;
+
+  miniNav.arrowEl.style.left = `${x}px`;
+  miniNav.arrowEl.style.top = `${y}px`;
+  miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${brg}rad)`;
+  miniNav.arrowEl.style.display = "block";
+}
+
+
 // =====================================================
 // ENTITY CREATE / SPAWN
 // =====================================================
@@ -864,7 +900,7 @@ const miniViewer = new Cesium.Viewer("miniMap", {
   fullscreenButton: false,
   vrButton: false,
 });
-miniViewer.scene.globe.depthTestAgainstTerrain = true;
+miniViewer.scene.globe.depthTestAgainstTerrain = false;
 
 miniViewer.scene.screenSpaceCameraController.enableRotate = false;
 miniViewer.scene.screenSpaceCameraController.enableTilt = false;
@@ -1221,7 +1257,7 @@ function ensureMapOverlay() {
     fullscreenButton: false,
     vrButton: false,
   });
-  mapViewer.scene.globe.depthTestAgainstTerrain = true;
+  mapViewer.scene.globe.depthTestAgainstTerrain = false;
 
   const ctrl = mapViewer.scene.screenSpaceCameraController;
   ctrl.enableRotate = false;
@@ -1822,6 +1858,9 @@ viewer.scene.postRender.addEventListener(() => {
       playersDirtyForUi = true;
     }
   }
+
+  updateMiniNavArrow();
+
 
   // ======= MINIMAP MARKERS =======
   ensureMiniMe();
