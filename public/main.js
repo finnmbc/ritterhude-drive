@@ -827,9 +827,8 @@ function showCarSelectMenu() {
       joinPending = true;
       setMenuHint(usePhone ? "Handy-Join (GPS)…" : "Reserviere Klasse…");
       applyClassStatusToMenu();
-      ws.send(JSON.stringify({ type: "join_request", carKey, role: "driver" })); 
-      // oder
-      ws.send(JSON.stringify({ type: "join_request", carKey, role: "spectator" }));
+      const role = usePhone ? "driver" : "spectator"; // oder wie du es willst
+      ws.send(JSON.stringify({ type: "join_request", carKey, role }));
 
     }
 
@@ -945,6 +944,8 @@ document.body.appendChild(hudSpeed);
 // =====================================================
 let mobileHud = null;
 let mobileArrow = null;
+let mobileLoopStarted = false;
+
 
 function ensureMobileHud() {
   if (mobileHud) return;
@@ -1906,11 +1907,22 @@ let netTimer = 0;
 let uiTimer = 0;
 
 function sendMyState() {
-  if (!joinAccepted || !car || !wsOpen) return;
-  ws.send(JSON.stringify({ type: "state", lat: carLat, lon: carLon, heading: heading, speed: speed, gear: gear }));
+  if (!joinAccepted || !wsOpen) return; // ✅ car/viewer egal (Handy sendet auch!)
+  ws.send(
+    JSON.stringify({
+      type: "state",
+      lat: carLat,
+      lon: carLon,
+      heading: heading,
+      speed: speed,
+      gear: gear,
+    })
+  );
 }
 
 function startMobileLoop() {
+  if (mobileLoopStarted) return;
+  mobileLoopStarted = true;
   ensureMobileHud();
 
   // GPS muss an sein, weil Handy-Mode
@@ -2132,6 +2144,8 @@ if (!mobileUiOnly) {
     let camSubHeading = heading;
     let camSubCfg = activeCfg;
     let camSubKmh = kmhDisplay;
+    let camSubjectKeyPrev = null;
+
 
 
     if (rideCarKey) {
@@ -2155,6 +2169,25 @@ if (!mobileUiOnly) {
         playersDirtyForUi = true;
       }
     }
+
+    const camSubjectKey = rideCarKey ? rideCarKey : activeCarKey;
+
+    const tCamSnap = Cesium.Math.clamp(camSubKmh / VMAX_KMH, 0.0, 1.0);
+    const camDistSnap = camSubCfg.camRearDistBase + camSubCfg.camRearDistAdd * tCamSnap;
+    const camHeightSnap = camSubCfg.camHeightBase + camSubCfg.camHeightAdd * tCamSnap;
+    const camPitchSnap = camSubCfg.camPitchBaseDeg + camSubCfg.camPitchAddDeg * tCamSnap;
+    const topHeightSnap = camSubCfg.topHeightBase + camSubCfg.topHeightAdd * tCamSnap;
+
+    // ✅ wenn wir das "Subject" wechseln (z.B. Mitfahren an/aus oder anderes Auto),
+    // dann Kamera-Werte sofort passend setzen (kein "zu tief" am Anfang)
+    if (camSubjectKeyPrev !== camSubjectKey) {
+      camSubjectKeyPrev = camSubjectKey;
+      camDistCur = camDistSnap;
+      camHeightCur = camHeightSnap;
+      camPitchDegCur = camPitchSnap;
+      topHeightCur = topHeightSnap;
+    }
+
 
     const tCam = Cesium.Math.clamp(camSubKmh / VMAX_KMH, 0.0, 1.0);
     const camDistTarget = camSubCfg.camRearDistBase + camSubCfg.camRearDistAdd * tCam;
