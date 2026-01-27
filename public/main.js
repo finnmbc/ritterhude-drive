@@ -2133,15 +2133,20 @@ if (!mobileUiOnly) {
     let camSubCfg = activeCfg;
     let camSubKmh = kmhDisplay;
 
+
     if (rideCarKey) {
       const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
       if (rp) {
-        camSubLat = rp.curLat;
-        camSubLon = rp.curLon;
-        camSubHeading = rp.curHeading;
+        // ✅ Kamera nutzt TARGET (am aktuellsten), Entity kann weiter smooth sein
+        const t = rp.target || rp;
+
+        camSubLat = Number.isFinite(t.lat) ? t.lat : rp.curLat;
+        camSubLon = Number.isFinite(t.lon) ? t.lon : rp.curLon;
+        camSubHeading = Number.isFinite(t.heading) ? t.heading : rp.curHeading;
+
         camSubCfg = cfgByKey(rp.cfgKey);
 
-        const rs = Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0; // m/s (skaliert wie dein speed)
+        const rs = Number.isFinite(t.speed) ? t.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0);
         camSubKmh = (Math.abs(rs) / SPEED_FEEL_SCALE) * 3.6;
       } else {
         // Ziel weg -> automatisch aussteigen
@@ -2455,19 +2460,23 @@ if (!mobileUiOnly) {
       const d = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
       navText = ` • NAV: ${(d / 1000).toFixed(2)} km`;
     }
-    const who = joinAccepted ? playerLabel(activeCarKey) : "Du";
-    const followText = navFollowCarKey ? ` • FOLLOW: ${playerLabel(navFollowCarKey)}` : "";
-    const rideText = rideCarKey ? ` • MITFAHREN: ${playerLabel(rideCarKey)}` : "";
-    hudSpeed.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  ${who}${navText}${followText}${rideText}`;
 
+    let who = joinAccepted ? playerLabel(activeCarKey) : "Du";
+    let displayKmh = kmhDisplay;
+    let displayGear = gear;
 
-    // ✅ UI refresh THROTTLED + sofort bei Dirty
-    uiTimer += dt;
-    if (playersDirtyForUi || uiTimer > 0.35) {
-      uiTimer = 0;
-      updatePlayerListHud();
-      if (isMapOpen() && mapOverlay?.__refreshPlayers) mapOverlay.__refreshPlayers();
-      playersDirtyForUi = false;
+    if (rideCarKey) {
+      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
+      if (rp) {
+        // speed: nimm target.speed (am aktuellsten), fallback curSpeed
+        const rs = Number.isFinite(rp.target?.speed) ? rp.target.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0);
+        displayKmh = (Math.abs(rs) / SPEED_FEEL_SCALE) * 3.6;
+
+        // gear: nimm target.gear falls vorhanden
+        if (typeof rp.target?.gear === "string") displayGear = rp.target.gear;
+
+        who = `MITFAHREN: ${playerLabel(rideCarKey)}`;
+      }
     }
   });
 }
