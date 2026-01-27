@@ -385,42 +385,6 @@ function isStopped() {
   return Math.abs(speed) < 0.25;
 }
 
-function updateMiniNavArrow() {
-  if (!miniNav.arrowEl) return;
-
-  // Nur zeigen wenn Ziel existiert
-  if (!navDest || !Number.isFinite(navDest.lat) || !Number.isFinite(navDest.lon)) {
-    miniNav.arrowEl.style.display = "none";
-    return;
-  }
-
-  // Bearing Auto -> Ziel
-  const brg = bearingRad(carLat, carLon, navDest.lat, navDest.lon);
-
-  // Pfeil an den Rand setzen (unten mittig ist oft nice)
-  const pad = 16;
-  const w = miniDiv.clientWidth;
-  const h = miniDiv.clientHeight;
-
-  const cx = w * 0.5;
-  const cy = h * 0.5;
-
-  // Richtung als Vektor (screen space: y nach unten)
-  const dx = Math.sin(brg);
-  const dy = -Math.cos(brg);
-
-  // Pfeilposition: am Rand (Kreis/ellipse)
-  const r = Math.min(w, h) * 0.45 - pad;
-  const x = cx + dx * r;
-  const y = cy + dy * r;
-
-  miniNav.arrowEl.style.left = `${x}px`;
-  miniNav.arrowEl.style.top = `${y}px`;
-  miniNav.arrowEl.style.transform = `translate(-50%,-50%) rotate(${brg}rad)`;
-  miniNav.arrowEl.style.display = "block";
-}
-
-
 // =====================================================
 // ENTITY CREATE / SPAWN
 // =====================================================
@@ -952,6 +916,120 @@ const miniNav = { destEnt: null, arrowEl: null };
   miniDiv.appendChild(el);
   miniNav.arrowEl = el;
 })();
+
+function ensureMiniNavDestEntity() {
+  if (miniNav.destEnt) return;
+
+  miniNav.destEnt = miniViewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(startLon, startLat, 0),
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.YELLOW,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+      outlineWidth: 2,
+    },
+    label: {
+      text: "ZIEL",
+      font: "900 11px system-ui",
+      pixelOffset: new Cesium.Cartesian2(0, -16),
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+}
+
+function clearMiniNavDestEntity() {
+  if (!miniNav.destEnt) return;
+  miniViewer.entities.remove(miniNav.destEnt);
+  miniNav.destEnt = null;
+}
+
+function updateMiniNavIndicator() {
+  const arrow = miniNav.arrowEl;
+  if (!arrow) return;
+
+  // Kein Ziel -> alles aus
+  if (!navDest || !Number.isFinite(navDest.lat) || !Number.isFinite(navDest.lon)) {
+    arrow.style.display = "none";
+    clearMiniNavDestEntity();
+    return;
+  }
+
+  // Zielposition projizieren
+  const destCart = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
+  const win = Cesium.SceneTransforms.wgs84ToWindowCoordinates(miniViewer.scene, destCart);
+
+  const w = miniDiv.clientWidth;
+  const h = miniDiv.clientHeight;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  // Falls Projektion nicht klappt -> Pfeil aus (oder du kannst ihn "einfach oben" anzeigen)
+  if (!win || !Number.isFinite(win.x) || !Number.isFinite(win.y)) {
+    arrow.style.display = "none";
+    clearMiniNavDestEntity();
+    return;
+  }
+
+  const inside = win.x >= 0 && win.x <= w && win.y >= 0 && win.y <= h;
+
+  // Farben je nach Follow/Manual
+  const isFollow = !!navFollowCarKey;
+  const col = isFollow ? Cesium.Color.LIME : Cesium.Color.YELLOW;
+
+  if (inside) {
+    // Ziel ist sichtbar -> Punkt anzeigen, Pfeil verstecken
+    arrow.style.display = "none";
+    ensureMiniNavDestEntity();
+    miniNav.destEnt.position = Cesium.Cartesian3.fromDegrees(navDest.lon, navDest.lat, 0);
+
+    if (miniNav.destEnt.point) miniNav.destEnt.point.color = col;
+
+    if (miniNav.destEnt.label) {
+      miniNav.destEnt.label.text = isFollow ? `FOLLOW` : "ZIEL";
+    }
+    return;
+  }
+
+  // Ziel außerhalb -> Punkt entfernen, Pfeil am Rand zeigen
+  clearMiniNavDestEntity();
+
+  // Richtung vom Zentrum zur Ziel-Screenposition
+  const dx = win.x - cx;
+  const dy = win.y - cy;
+
+  // Winkel: unser Dreieck "zeigt nach oben" bei rotation(0),
+  // deshalb: atan2(dx, -dy)
+  const ang = Math.atan2(dx, -dy);
+
+  // Pfeil-Position an den Rand clampen (Rect-Clamp)
+  const margin = 16;
+  const maxX = cx - margin;
+  const maxY = cy - margin;
+
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+
+  // scale so that (cx + dx*k, cy + dy*k) an den Rand kommt
+  const kx = adx > 0 ? maxX / adx : 9999;
+  const ky = ady > 0 ? maxY / ady : 9999;
+  const k = Math.min(kx, ky);
+
+  const px = cx + dx * k;
+  const py = cy + dy * k;
+
+  arrow.style.display = "block";
+  arrow.style.left = `${px}px`;
+  arrow.style.top = `${py}px`;
+  arrow.style.transform = `translate(-50%,-50%) rotate(${ang}rad)`;
+
+  // Pfeilfarbe setzen (per CSS Border)
+  arrow.style.borderBottomColor = isFollow ? "rgba(120,255,120,0.95)" : "rgba(255,255,120,0.95)";
+}
+
 
 miniDiv.addEventListener("click", (e) => {
   e.preventDefault();
@@ -1797,6 +1875,8 @@ viewer.scene.postRender.addEventListener(() => {
     orientation: { heading: heading, pitch: Cesium.Math.toRadians(-90), roll: 0 },
   });
 
+  updateMiniNavIndicator();
+
   // ======= NETWORK SEND (10 Hz) =======
   netTimer += dt;
   if (netTimer > 0.1) {
@@ -1858,9 +1938,6 @@ viewer.scene.postRender.addEventListener(() => {
       playersDirtyForUi = true;
     }
   }
-
-  updateMiniNavArrow();
-
 
   // ======= MINIMAP MARKERS =======
   ensureMiniMe();
