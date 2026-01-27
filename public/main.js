@@ -437,6 +437,13 @@ async function spawnCar({ lat, lon, carKey, headingDeg = REWE_HEADING_DEG, reset
   sArmed = false;
   wArmed = false;
 
+  // ✅ MOBILE/UI-ONLY: kein Viewer -> nur State setzen
+  if (!viewer) {
+    car = null;
+    heightReady = false;
+    return;
+  }
+
   if (car) viewer.entities.remove(car);
   car = createCarEntity(activeCfg);
 
@@ -561,6 +568,10 @@ ws.addEventListener("message", async (ev) => {
     joinAccepted = true;
     applyClassStatusToMenu();
 
+    // ✅ Overlay sofort weg
+    const ov = document.getElementById("carSelectOverlay");
+    if (ov) ov.remove();
+
     const carKey = msg.carKey;
     const sp = msg.spawn;
 
@@ -572,8 +583,16 @@ ws.addEventListener("message", async (ev) => {
       resetCam: true,
     });
 
-    const ov = document.getElementById("carSelectOverlay");
-    if (ov) ov.remove();
+    // ✅ Mobile Loop starten, wenn Handy-UI-only
+    if (mobileUiOnly) {
+      ensureMobileHud();
+      if (!mobileLoopStarted) startMobileLoop(); // siehe unten
+    }
+
+    // ✅ GPS nur wenn Handy-Button gewählt wurde
+    if (phoneJoinRequested) setGpsMode(true);
+    else setGpsMode(false); // Spectator by default
+
     playersDirtyForUi = true;
     return;
   }
@@ -620,6 +639,7 @@ ws.addEventListener("message", async (ev) => {
           curLat: p.lat,
           curLon: p.lon,
           curHeading: p.heading,
+          curSpeed: Number.isFinite(p.speed) ? p.speed : 0,
         });
         playersDirtyForUi = true;
       } else {
@@ -645,6 +665,42 @@ ws.addEventListener("message", async (ev) => {
 let navDest = null;
 let navFollowCarKey = null;
 let navDestMode = null; // "manual" | "follow" | null
+
+// =====================================================
+// ✅ MITFAHREN / AUSSTEIGEN (Spectator Camera)
+// =====================================================
+let rideCarKey = null;        // null = nicht mitfahren, sonst "KONA"/"BENZ"/"BULLI"
+let rideFrozen = null;        // merkt sich deine Position beim Einsteigen
+
+function toggleRide(carKey) {
+  if (!carKey) return;
+
+  // aussteigen
+  if (rideCarKey === carKey) {
+    rideCarKey = null;
+    rideFrozen = null;
+    playersDirtyForUi = true;
+    return;
+  }
+
+  // einsteigen: eigene Position "einfrieren"
+  rideCarKey = carKey;
+  rideFrozen = {
+    lat: carLat,
+    lon: carLon,
+    heading: heading,
+    gear: gear,
+  };
+
+  // optional: GPS beim Mitfahren aus (sonst würde es dich weiter "ziehen")
+  if (gpsMode) setGpsMode(false);
+
+  // optional: auch Follow automatisch setzen
+  // navFollowCarKey = carKey; navDestMode = "follow";
+
+  playersDirtyForUi = true;
+}
+
 
 function clearNav() {
   navDest = null;
@@ -771,7 +827,10 @@ function showCarSelectMenu() {
       joinPending = true;
       setMenuHint(usePhone ? "Handy-Join (GPS)…" : "Reserviere Klasse…");
       applyClassStatusToMenu();
-      ws.send(JSON.stringify({ type: "join_request", carKey }));
+      ws.send(JSON.stringify({ type: "join_request", carKey, role: "driver" })); 
+      // oder
+      ws.send(JSON.stringify({ type: "join_request", carKey, role: "spectator" }));
+
     }
 
     btnNormal.onclick = () => tryJoin({ usePhone: false });
@@ -1777,14 +1836,23 @@ function updatePlayerListHud() {
     seen.add(ck);
 
     const isFollow = navFollowCarKey === ck;
+    const isRide = rideCarKey === ck;
 
     rows.push(`<div style="display:flex; justify-content:space-between; gap:8px; align-items:center;">
       <div>🟧 ${playerLabel(ck)}</div>
-      <button data-follow="${ck}" style="
-        padding:6px 8px; border-radius:10px; border:1px solid rgba(255,255,255,0.16);
-        background:${isFollow ? "rgba(255,120,120,0.18)" : "rgba(120,255,120,0.18)"};
-        color:white; cursor:pointer; font:950 11px system-ui, Arial;
-      ">${isFollow ? "UNFOLLOW" : "FOLLOW"}</button>
+      <div style="display:flex; gap:6px;">
+        <button data-follow="${ck}" style="
+          padding:6px 8px; border-radius:10px; border:1px solid rgba(255,255,255,0.16);
+          background:${isFollow ? "rgba(255,120,120,0.18)" : "rgba(120,255,120,0.18)"};
+          color:white; cursor:pointer; font:950 11px system-ui, Arial;
+        ">${isFollow ? "UNFOLLOW" : "FOLLOW"}</button>
+
+        <button data-ride="${ck}" style="
+          padding:6px 8px; border-radius:10px; border:1px solid rgba(255,255,255,0.16);
+          background:${isRide ? "rgba(255,120,120,0.18)" : "rgba(180,180,255,0.18)"};
+          color:white; cursor:pointer; font:950 11px system-ui, Arial;
+        ">${isRide ? "AUSSTEIGEN" : "MITFAHREN"}</button>
+      </div>
     </div>`);
   }
 
@@ -1795,6 +1863,14 @@ function updatePlayerListHud() {
       const ck = btn.getAttribute("data-follow");
       if (!ck) return;
       toggleFollow(ck);
+    };
+  });
+
+  hudPlayers.querySelectorAll("[data-ride]").forEach((btn) => {
+    btn.onclick = () => {
+      const ck = btn.getAttribute("data-ride");
+      if (!ck) return;
+      toggleRide(ck);
     };
   });
 }
@@ -1916,11 +1992,27 @@ if (!mobileUiOnly) {
     const dt = Math.min(0.05, (now - lastTime) / 1000);
     lastTime = now;
 
+    if (rideCarKey && rideFrozen) {
+      carLat = rideFrozen.lat;
+      carLon = rideFrozen.lon;
+      heading = rideFrozen.heading;
+      gear = rideFrozen.gear || "D";
+      speed = 0;
+    }
+
+
     // ======= FAHREN / GPS OVERRIDE =======
     let kmhDisplay = 0;
 
-    if (gpsMode) {
-      if (gpsFix && Number.isFinite(gpsFix.lat) && Number.isFinite(gpsFix.lon)) {
+    if (rideCarKey) {
+      // ✅ Mitfahren: keine Bewegung
+      speed = 0;
+      kmhDisplay = 0;
+      gear = "D";
+      sArmed = false;
+      wArmed = false;
+    } else if (gpsMode) {
+        if (gpsFix && Number.isFinite(gpsFix.lat) && Number.isFinite(gpsFix.lon)) {
         carLat = gpsFix.lat;
         carLon = gpsFix.lon;
 
@@ -2034,11 +2126,36 @@ if (!mobileUiOnly) {
     car.orientation = Cesium.Transforms.headingPitchRollQuaternion(pos, hpr);
 
     // ======= CAMERA =======
-    const tCam = Cesium.Math.clamp(kmhDisplay / VMAX_KMH, 0.0, 1.0);
-    const camDistTarget = activeCfg.camRearDistBase + activeCfg.camRearDistAdd * tCam;
-    const camHeightTarget = activeCfg.camHeightBase + activeCfg.camHeightAdd * tCam;
-    const camPitchDegTarget = activeCfg.camPitchBaseDeg + activeCfg.camPitchAddDeg * tCam;
-    const topHeightTarget = activeCfg.topHeightBase + activeCfg.topHeightAdd * tCam;
+    // Camera-Subject: normal = eigenes Auto, bei Mitfahren = anderes Auto
+    let camSubLat = carLat;
+    let camSubLon = carLon;
+    let camSubHeading = heading;
+    let camSubCfg = activeCfg;
+    let camSubKmh = kmhDisplay;
+
+    if (rideCarKey) {
+      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
+      if (rp) {
+        camSubLat = rp.curLat;
+        camSubLon = rp.curLon;
+        camSubHeading = rp.curHeading;
+        camSubCfg = cfgByKey(rp.cfgKey);
+
+        const rs = Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0; // m/s (skaliert wie dein speed)
+        camSubKmh = (Math.abs(rs) / SPEED_FEEL_SCALE) * 3.6;
+      } else {
+        // Ziel weg -> automatisch aussteigen
+        rideCarKey = null;
+        rideFrozen = null;
+        playersDirtyForUi = true;
+      }
+    }
+
+    const tCam = Cesium.Math.clamp(camSubKmh / VMAX_KMH, 0.0, 1.0);
+    const camDistTarget = camSubCfg.camRearDistBase + camSubCfg.camRearDistAdd * tCam;
+    const camHeightTarget = camSubCfg.camHeightBase + camSubCfg.camHeightAdd * tCam;
+    const camPitchDegTarget = camSubCfg.camPitchBaseDeg + camSubCfg.camPitchAddDeg * tCam;
+    const topHeightTarget = camSubCfg.topHeightBase + camSubCfg.topHeightAdd * tCam;
 
     const smooth = 0.12;
     camDistCur += (camDistTarget - camDistCur) * smooth;
@@ -2046,51 +2163,56 @@ if (!mobileUiOnly) {
     camPitchDegCur += (camPitchDegTarget - camPitchDegCur) * smooth;
     topHeightCur += (topHeightTarget - topHeightCur) * smooth;
 
-    const screenOffsetM = activeCfg.camScreenRightOffsetM ?? 0.0;
-    const strafeX = Math.cos(heading) * screenOffsetM;
-    const strafeY = -Math.sin(heading) * screenOffsetM;
+    // Screen-Offset (rechts/links) relativ zur Subject-Heading
+    const screenOffsetM = camSubCfg.camScreenRightOffsetM ?? 0.0;
+    const strafeX = Math.cos(camSubHeading) * screenOffsetM;
+    const strafeY = -Math.sin(camSubHeading) * screenOffsetM;
 
-    let camLon = carLon;
-    let camLat = carLat;
-    let camHeading = heading;
+    let camLon = camSubLon;
+    let camLat = camSubLat;
+    let camHeading = camSubHeading;
     let camPitch = Cesium.Math.toRadians(camPitchDegCur);
     let camHeight = camHeightCur;
 
     if (camView === "top") {
       camHeight = topHeightCur;
       camPitch = Cesium.Math.toRadians(-90);
-      camHeading = heading;
-      camLon = carLon + strafeX / metersPerDegLon(carLat);
-      camLat = carLat + strafeY / metersPerDegLat;
+      camHeading = camSubHeading;
+
+      camLon = camSubLon + strafeX / metersPerDegLon(camSubLat);
+      camLat = camSubLat + strafeY / metersPerDegLat;
     } else {
       let offCX = 0;
       let offCY = 0;
       const sideDist = camDistCur * 0.9;
+
       if (camView === "rear") {
-        offCX = -Math.sin(heading) * camDistCur;
-        offCY = -Math.cos(heading) * camDistCur;
-        camHeading = heading;
+        offCX = -Math.sin(camSubHeading) * camDistCur;
+        offCY = -Math.cos(camSubHeading) * camDistCur;
+        camHeading = camSubHeading;
       } else if (camView === "front") {
-        offCX = +Math.sin(heading) * camDistCur;
-        offCY = +Math.cos(heading) * camDistCur;
-        camHeading = heading + Math.PI;
+        offCX = +Math.sin(camSubHeading) * camDistCur;
+        offCY = +Math.cos(camSubHeading) * camDistCur;
+        camHeading = camSubHeading + Math.PI;
       } else if (camView === "right") {
-        offCX = +Math.cos(heading) * sideDist;
-        offCY = -Math.sin(heading) * sideDist;
-        camHeading = heading - Math.PI / 2;
+        offCX = +Math.cos(camSubHeading) * sideDist;
+        offCY = -Math.sin(camSubHeading) * sideDist;
+        camHeading = camSubHeading - Math.PI / 2;
       } else if (camView === "left") {
-        offCX = -Math.cos(heading) * sideDist;
-        offCY = +Math.sin(heading) * sideDist;
-        camHeading = heading + Math.PI / 2;
+        offCX = -Math.cos(camSubHeading) * sideDist;
+        offCY = +Math.sin(camSubHeading) * sideDist;
+        camHeading = camSubHeading + Math.PI / 2;
       }
-      camLon = carLon + (offCX + strafeX) / metersPerDegLon(carLat);
-      camLat = carLat + (offCY + strafeY) / metersPerDegLat;
+
+      camLon = camSubLon + (offCX + strafeX) / metersPerDegLon(camSubLat);
+      camLat = camSubLat + (offCY + strafeY) / metersPerDegLat;
     }
 
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(camLon, camLat, groundH + camHeight),
       orientation: { heading: camHeading, pitch: camPitch, roll: 0 },
     });
+
 
     // ======= MINIMAP CAMERA =======
     let miniHeightTarget;
@@ -2141,6 +2263,10 @@ if (!mobileUiOnly) {
         Cesium.Math.toRadians(cfg.rollOffsetDeg ?? 0)
       );
       rp.entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(ppos, rhpr);
+
+      // speed smooth
+      const ts = rp.target?.speed;
+      if (Number.isFinite(ts)) rp.curSpeed += (ts - rp.curSpeed) * alpha2;
     }
 
     // ✅ FOLLOW
@@ -2331,7 +2457,9 @@ if (!mobileUiOnly) {
     }
     const who = joinAccepted ? playerLabel(activeCarKey) : "Du";
     const followText = navFollowCarKey ? ` • FOLLOW: ${playerLabel(navFollowCarKey)}` : "";
-    hudSpeed.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  ${who}${navText}${followText}`;
+    const rideText = rideCarKey ? ` • MITFAHREN: ${playerLabel(rideCarKey)}` : "";
+    hudSpeed.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  ${who}${navText}${followText}${rideText}`;
+
 
     // ✅ UI refresh THROTTLED + sofort bei Dirty
     uiTimer += dt;
