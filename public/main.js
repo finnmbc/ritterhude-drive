@@ -519,10 +519,12 @@ function applyClassStatusToMenu() {
   }
 }
 
+const remoteByCarKey = new Map(); // carKey -> rp
+
 // =====================================================
 // ✅ INTERPOLATION BUFFER (Render in the past)
 // =====================================================
-const INTERP_DELAY_MS = 180;     // 120..250ms ausprobieren
+const INTERP_DELAY_MS = 230;     // 120..250ms ausprobieren
 const HISTORY_MAX_MS  = 2000;    // wie lange Samples behalten
 const HISTORY_MAX_LEN = 120;     // Safety cap
 
@@ -746,6 +748,14 @@ ws.addEventListener("message", async (ev) => {
           history: [],
           lastSample: null,
           rendered: null, // optional: wird später im Renderloop gesetzt
+
+          groundH: 0,
+          groundHReady: false,
+          _tmpCarto: new Cesium.Cartographic(),
+          _tmpPos: new Cesium.Cartesian3(),
+          _tmpHpr: new Cesium.HeadingPitchRoll(),
+          _tmpQuat: new Cesium.Quaternion(),
+
         });
 
         playersDirtyForUi = true;
@@ -758,6 +768,7 @@ ws.addEventListener("message", async (ev) => {
         if (viewer && rp.entity) viewer.entities.remove(rp.entity);
         rp.entity = viewer ? createRemoteCarEntity(cfg, p.lat, p.lon, p.heading, 0) : null;
         rp.cfgKey = p.carKey;
+        remoteByCarKey.set(rp.cfgKey, rp);
         playersDirtyForUi = true;
       }
 
@@ -2072,7 +2083,7 @@ if (!mobileUiOnly && viewer) {
 
 
     // =====================================================
-    // ✅ REMOTE INTERPOLATION (render in the past)
+    // ✅ REMOTE INTERPOLATION (render in the past)  +  smooth terrain height + zero GC
     // =====================================================
     const renderTime = performance.now() - INTERP_DELAY_MS;
 
@@ -2080,27 +2091,57 @@ if (!mobileUiOnly && viewer) {
       const s = sampleHistoryAt(rp.history, renderTime) || rp.lastSample;
       if (!s) continue;
 
+      // ✅ für HUD/Follow/Ride immer merken
+      rp.rendered = s;
+
       // Entity updaten
       if (viewer && rp.entity) {
         const cfg = cfgByKey(rp.cfgKey);
-        const cc = Cesium.Cartographic.fromDegrees(s.lon, s.lat);
-        const gh = viewer.scene.globe.getHeight(cc);
-        const groundRemote = Number.isFinite(gh) ? gh : 0;
 
-        const ppos = Cesium.Cartesian3.fromDegrees(s.lon, s.lat, groundRemote + (cfg.zLift ?? 0));
-        rp.entity.position = ppos;
+        // --- ensure per-rp temp objects + smoothed ground height ---
+        if (!rp._tmpCarto) rp._tmpCarto = new Cesium.Cartographic();
+        if (!rp._tmpPos) rp._tmpPos = new Cesium.Cartesian3();
+        if (!rp._tmpHpr) rp._tmpHpr = new Cesium.HeadingPitchRoll();
+        if (!rp._tmpQuat) rp._tmpQuat = new Cesium.Quaternion();
+        if (rp.groundH == null) rp.groundH = 0;
+        if (rp.groundHReady == null) rp.groundHReady = false;
 
-        const rhpr = new Cesium.HeadingPitchRoll(
-          s.heading + Cesium.Math.toRadians(cfg.yawOffsetDeg ?? 0),
-          Cesium.Math.toRadians(cfg.pitchOffsetDeg ?? 0),
-          Cesium.Math.toRadians(cfg.rollOffsetDeg ?? 0)
+        // reuse cartographic (keine allocations)
+        Cesium.Cartographic.fromDegrees(s.lon, s.lat, 0, rp._tmpCarto);
+
+        // Terrain-Höhe kann "springen" wenn Tiles nachladen → glätten
+        const gh = viewer.scene.globe.getHeight(rp._tmpCarto);
+        if (Number.isFinite(gh)) {
+          if (!rp.groundHReady) {
+            rp.groundH = gh;
+            rp.groundHReady = true;
+          } else {
+            // smoothing (0.18..0.28) — höher = schneller, niedriger = ruhiger
+            rp.groundH += (gh - rp.groundH) * 0.22;
+          }
+        }
+
+        const groundRemote = rp.groundHReady ? rp.groundH : 0;
+
+        // reuse position object
+        Cesium.Cartesian3.fromDegrees(
+          s.lon,
+          s.lat,
+          groundRemote + (cfg.zLift ?? 0),
+          rp._tmpPos
         );
-        rp.entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(ppos, rhpr);
-      }
+        rp.entity.position = rp._tmpPos;
 
-      // Optional: Für HUD/Follow/Ride brauchst du den interpolierten Zustand irgendwo:
-      rp.rendered = s; // ✅ merken
+        // reuse HPR + quaternion (keine neuen Objekte pro Frame)
+        rp._tmpHpr.heading = s.heading + Cesium.Math.toRadians(cfg.yawOffsetDeg ?? 0);
+        rp._tmpHpr.pitch = Cesium.Math.toRadians(cfg.pitchOffsetDeg ?? 0);
+        rp._tmpHpr.roll = Cesium.Math.toRadians(cfg.rollOffsetDeg ?? 0);
+
+        Cesium.Transforms.headingPitchRollQuaternion(rp._tmpPos, rp._tmpHpr, rp._tmpQuat);
+        rp.entity.orientation = rp._tmpQuat;
+      }
     }
+
 
     // =====================================================
     // ✅ RIDE SUBJECT: beim Mitfahren folgen Kamera/Minimap dem Fahrer,
