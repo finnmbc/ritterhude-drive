@@ -519,11 +519,89 @@ function applyClassStatusToMenu() {
   }
 }
 
+// =====================================================
+// ✅ INTERPOLATION BUFFER (Render in the past)
+// =====================================================
+const INTERP_DELAY_MS = 180;     // 120..250ms ausprobieren
+const HISTORY_MAX_MS  = 2000;    // wie lange Samples behalten
+const HISTORY_MAX_LEN = 120;     // Safety cap
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+// Winkel lerp mit Wrap (-PI..PI)
+function lerpAngle(a, b, t) {
+  let d = b - a;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return a + d * t;
+}
+
+// Sucht Samples um renderTime und gibt interpolierten Zustand zurück
+function sampleHistoryAt(history, renderTime) {
+  if (!history || history.length === 0) return null;
+  if (history.length === 1) return history[0];
+
+  // Wenn renderTime vor erstem Sample oder nach letztem -> clamp
+  if (renderTime <= history[0].t) return history[0];
+  const last = history[history.length - 1];
+  if (renderTime >= last.t) return last;
+
+  // Lineare Suche reicht bei kleinen Arrays; sonst binary search
+  let i = history.length - 2;
+  while (i >= 0 && history[i].t > renderTime) i--;
+  const a = history[i];
+  const b = history[i + 1];
+  const span = (b.t - a.t) || 1;
+  const t = (renderTime - a.t) / span;
+
+  return {
+    t: renderTime,
+    lat: lerp(a.lat, b.lat, t),
+    lon: lerp(a.lon, b.lon, t),
+    heading: lerpAngle(a.heading, b.heading, t),
+    speed: lerp(a.speed ?? 0, b.speed ?? 0, t),
+    gear: (t < 0.5 ? a.gear : b.gear) ?? "D",
+    camView: (t < 0.5 ? a.camView : b.camView) ?? DEFAULT_CAM_VIEW,
+    carKey: b.carKey ?? a.carKey,
+  };
+}
+
+function pushHistory(rp, sample) {
+  if (!rp.history) rp.history = [];
+  rp.history.push(sample);
+
+  // prune by time
+  const cutoff = sample.t - HISTORY_MAX_MS;
+  while (rp.history.length && rp.history[0].t < cutoff) rp.history.shift();
+
+  // safety cap
+  if (rp.history.length > HISTORY_MAX_LEN) {
+    rp.history.splice(0, rp.history.length - HISTORY_MAX_LEN);
+  }
+}
+
+
 function cfgByKey(carKey) {
   return CAR_CONFIGS[carKey] ?? CAR_CONFIGS.KONA;
 }
 
 const remotePlayers = new Map();
+
+function getRemoteByCarKey(carKey) {
+  for (const rp of remotePlayers.values()) {
+    if (rp?.cfgKey === carKey) return rp;
+  }
+  return null;
+}
+
+function getRemoteStateByCarKey(carKey) {
+  const rp = getRemoteByCarKey(carKey);
+  if (!rp) return null;
+  return rp.rendered || rp.lastSample || null; // ✅ NUR DAS benutzen
+}
+
 
 function createRemoteCarEntity(cfg, lat, lon, h, groundH = 0) {
   const pos = Cesium.Cartesian3.fromDegrees(lon, lat, groundH + (cfg.zLift ?? 0));
@@ -649,40 +727,63 @@ ws.addEventListener("message", async (ev) => {
 
   if (msg.type === "snapshot") {
     const arr = msg.players || [];
+    const nowT = performance.now(); // Empfangszeit (lokal)
+
     for (const p of arr) {
       if (!p?.id || p.id === myId) continue;
 
       const cfg = cfgByKey(p.carKey);
 
+      // ✅ Player neu anlegen
       if (!remotePlayers.has(p.id)) {
-        const entity = viewer
-          ? createRemoteCarEntity(cfg, p.lat, p.lon, p.heading, 0)
-          : null;
+        const entity = viewer ? createRemoteCarEntity(cfg, p.lat, p.lon, p.heading, 0) : null;
 
         remotePlayers.set(p.id, {
           entity,
           cfgKey: p.carKey,
-          target: { ...p }, // ✅ enthält ggf. camView
-          curLat: p.lat,
-          curLon: p.lon,
-          curHeading: p.heading,
-          curSpeed: Number.isFinite(p.speed) ? p.speed : 0,
+
+          // ✅ NEU: Interpolation-Buffer
+          history: [],
+          lastSample: null,
+          rendered: null, // optional: wird später im Renderloop gesetzt
         });
+
         playersDirtyForUi = true;
-      } else {
-        const rp = remotePlayers.get(p.id);
-        if (rp.cfgKey !== p.carKey) {
-          if (viewer && rp.entity) viewer.entities.remove(rp.entity);
-          rp.entity = viewer ? createRemoteCarEntity(cfg, p.lat, p.lon, p.heading, 0) : null;
-          rp.cfgKey = p.carKey;
-          rp.curLat = p.lat;
-          rp.curLon = p.lon;
-          rp.curHeading = p.heading;
-          playersDirtyForUi = true;
-        }
-        rp.target = { ...p }; // ✅ camView übernimmt sich hier automatisch
       }
+
+      const rp = remotePlayers.get(p.id);
+
+      // ✅ falls Auto-Klasse wechselt -> Entity neu
+      if (rp.cfgKey !== p.carKey) {
+        if (viewer && rp.entity) viewer.entities.remove(rp.entity);
+        rp.entity = viewer ? createRemoteCarEntity(cfg, p.lat, p.lon, p.heading, 0) : null;
+        rp.cfgKey = p.carKey;
+        playersDirtyForUi = true;
+      }
+
+      // ✅ Sample in History (für Render-Delay / Interpolation)
+      const sample = {
+        t: nowT, // oder: p.ts, wenn Server einen Timestamp mitschickt
+        lat: Number.isFinite(p.lat) ? p.lat : rp.lastSample?.lat,
+        lon: Number.isFinite(p.lon) ? p.lon : rp.lastSample?.lon,
+        heading: Number.isFinite(p.heading) ? p.heading : (rp.lastSample?.heading ?? 0),
+        speed: Number.isFinite(p.speed) ? p.speed : 0,
+        gear: typeof p.gear === "string" ? p.gear : "D",
+        camView: typeof p.camView === "string" ? p.camView : DEFAULT_CAM_VIEW,
+        carKey: p.carKey,
+      };
+
+      // falls lat/lon doch mal fehlen -> skip (verhindert NaNs in History)
+      if (!Number.isFinite(sample.lat) || !Number.isFinite(sample.lon)) continue;
+
+      pushHistory(rp, sample);
+      rp.lastSample = sample;
     }
+
+    // ✅ UI ggf. updaten
+    playersDirtyForUi = true;
+
+    return;
   }
 });
 
@@ -1331,8 +1432,8 @@ function centerBigMapOnCarKey(carKey) {
     centerBigMapOn(carLat, carLon, 1400);
     return;
   }
-  const rp = [...remotePlayers.values()].find((x) => x.cfgKey === carKey);
-  if (rp) centerBigMapOn(rp.curLat, rp.curLon, 1400);
+  const t = getRemoteStateByCarKey(carKey); 
+  if (t) centerBigMapOn(t.lat, t.lon, 1400);
 }
 
 function ensureMapOverlay() {
@@ -1923,9 +2024,9 @@ function startMobileLoop() {
     }
 
     if (navFollowCarKey) {
-      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === navFollowCarKey);
-      if (rp) {
-        navDest = { lat: rp.curLat, lon: rp.curLon };
+      const t = getRemoteStateByCarKey(navFollowCarKey);
+      if (t) {
+        navDest = { lat: t.lat, lon: t.lon };
         navDestMode = "follow";
       } else {
         navFollowCarKey = null;
@@ -1971,47 +2072,34 @@ if (!mobileUiOnly && viewer) {
 
 
     // =====================================================
-    // ✅ REMOTE SMOOTH läuft IMMER (auch wenn car noch null ist)
+    // ✅ REMOTE INTERPOLATION (render in the past)
     // =====================================================
+    const renderTime = performance.now() - INTERP_DELAY_MS;
+
     for (const [, rp] of remotePlayers) {
+      const s = sampleHistoryAt(rp.history, renderTime) || rp.lastSample;
+      if (!s) continue;
 
-      // ✅ wenn wir den Spieler "besitzen" (mitfahren), sein Remote-Entity verstecken,
-      // damit kein Doppelauto am gleichen Ort erscheint
-      if (rp.entity) {
-        //rp.entity.show = !(rideCarKey && rp.cfgKey === rideCarKey);
-      }
+      // Entity updaten
+      if (viewer && rp.entity) {
+        const cfg = cfgByKey(rp.cfgKey);
+        const cc = Cesium.Cartographic.fromDegrees(s.lon, s.lat);
+        const gh = viewer.scene.globe.getHeight(cc);
+        const groundRemote = Number.isFinite(gh) ? gh : 0;
 
-      const t = rp.target;
-      if (!t) continue;
-
-      const alpha2 = 0.18;
-      rp.curLat += (t.lat - rp.curLat) * alpha2;
-      rp.curLon += (t.lon - rp.curLon) * alpha2;
-
-      let dh = t.heading - rp.curHeading;
-      while (dh > Math.PI) dh -= 2 * Math.PI;
-      while (dh < -Math.PI) dh += 2 * Math.PI;
-      rp.curHeading += dh * alpha2;
-
-      const cfg = cfgByKey(rp.cfgKey);
-      const cc = Cesium.Cartographic.fromDegrees(rp.curLon, rp.curLat);
-      const gh = viewer.scene.globe.getHeight(cc);
-      const groundRemote = Number.isFinite(gh) ? gh : 0;
-
-      if (rp.entity) {
-        const ppos = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, groundRemote + (cfg.zLift ?? 0));
+        const ppos = Cesium.Cartesian3.fromDegrees(s.lon, s.lat, groundRemote + (cfg.zLift ?? 0));
         rp.entity.position = ppos;
 
         const rhpr = new Cesium.HeadingPitchRoll(
-          rp.curHeading + Cesium.Math.toRadians(cfg.yawOffsetDeg ?? 0),
+          s.heading + Cesium.Math.toRadians(cfg.yawOffsetDeg ?? 0),
           Cesium.Math.toRadians(cfg.pitchOffsetDeg ?? 0),
           Cesium.Math.toRadians(cfg.rollOffsetDeg ?? 0)
         );
         rp.entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(ppos, rhpr);
       }
 
-      const ts = rp.target?.speed;
-      if (Number.isFinite(ts)) rp.curSpeed += (ts - rp.curSpeed) * alpha2;
+      // Optional: Für HUD/Follow/Ride brauchst du den interpolierten Zustand irgendwo:
+      rp.rendered = s; // ✅ merken
     }
 
     // =====================================================
@@ -2021,22 +2109,22 @@ if (!mobileUiOnly && viewer) {
     let rideSub = null; // {lat,lon,heading,speed,gear,camView}
 
     if (rideCarKey) {
-      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
-      if (!rp) {
+      const t = getRemoteStateByCarKey(rideCarKey);
+      if (!t) {
         // Fahrer weg -> automatisch aussteigen
         toggleRide(rideCarKey);
       } else {
-        const t = rp.target || rp;
         rideSub = {
-          lat: Number.isFinite(t.lat) ? t.lat : rp.curLat,
-          lon: Number.isFinite(t.lon) ? t.lon : rp.curLon,
-          heading: Number.isFinite(t.heading) ? t.heading : rp.curHeading,
-          speed: Number.isFinite(t.speed) ? t.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0),
+          lat: t.lat,
+          lon: t.lon,
+          heading: t.heading,
+          speed: Number.isFinite(t.speed) ? t.speed : 0,
           gear: typeof t.gear === "string" ? t.gear : "D",
           camView: typeof t.camView === "string" ? t.camView : DEFAULT_CAM_VIEW,
         };
       }
     }
+
 
 
 
@@ -2047,54 +2135,46 @@ if (!mobileUiOnly && viewer) {
     let renderCfg = activeCfg;
 
     if (rideCarKey) {
-      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
+      const t = getRemoteStateByCarKey(rideCarKey);
 
-      if (!rp) {
+      if (!t) {
         rideCarKey = null;
-        rideFrozen = null;
         playersDirtyForUi = true;
       } else {
-        const t = rp.target || rp;
+        // ✅ 1:1 Fahrer-Position übernehmen (interpoliert!)
+        carLat = t.lat;
+        carLon = t.lon;
+        heading = t.heading;
 
-        // ✅ 1:1 Fahrer-Position übernehmen
-        carLat = Number.isFinite(t.lat) ? t.lat : rp.curLat;
-        carLon = Number.isFinite(t.lon) ? t.lon : rp.curLon;
-        heading = Number.isFinite(t.heading) ? t.heading : rp.curHeading;
-
-        // ✅ Speed/Gear übernehmen (für HUD + Cam-Feeling)
-        speed = Number.isFinite(t.speed) ? t.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0);
+        // ✅ Speed/Gear übernehmen
+        speed = Number.isFinite(t.speed) ? t.speed : 0;
         if (typeof t.gear === "string") gear = t.gear;
 
-        // ✅ Kamera-View vom Fahrer übernehmen
-        if (typeof t.camView === "string") camView = t.camView;
-        else camView = DEFAULT_CAM_VIEW;
+        // ✅ Kamera-View übernehmen
+        camView = (typeof t.camView === "string") ? t.camView : DEFAULT_CAM_VIEW;
 
         // ✅ wir rendern das Auto des Fahrers als "unser" Auto
         renderCfg = cfgByKey(rideCarKey);
 
-        // falls unser lokales Model nicht passt -> neu erstellen
         const curUri = car?.model?.uri;
         if (viewer && (!car || curUri !== renderCfg.uri)) {
-          //if (car) viewer.entities.remove(car);
-          //car = createCarEntity(renderCfg);
           heightReady = false;
         }
       }
     }
 
 
+
     // ✅ FOLLOW Ziel updaten
     if (navFollowCarKey) {
       const rp = [...remotePlayers.values()].find((x) => x.cfgKey === navFollowCarKey);
-      if (rp) {
-        navDest = { lat: rp.curLat, lon: rp.curLon };
+      const s = rp?.rendered || rp?.lastSample;
+      if (s) {
+        navDest = { lat: s.lat, lon: s.lon };
         navDestMode = "follow";
       } else {
         navFollowCarKey = null;
-        if (navDestMode === "follow") {
-          navDest = null;
-          navDestMode = null;
-        }
+        if (navDestMode === "follow") { navDest = null; navDestMode = null; }
         playersDirtyForUi = true;
       }
     }
@@ -2145,25 +2225,25 @@ if (!mobileUiOnly && viewer) {
     miniEntities.me.position = Cesium.Cartesian3.fromDegrees(mapSubLon, mapSubLat, 0);
 
     for (const [id, rp] of remotePlayers) {
-      // ✅ beim Mitfahren den "Ride-Spieler" nicht doppelt als Remote anzeigen
-      //if (rideCarKey && rp.cfgKey === rideCarKey) continue;
+      const s = rp.rendered || rp.lastSample;
+      if (!s) continue;
 
       if (!miniRemoteEntities.has(id)) {
         const ent = miniViewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
+          position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat, 0),
           point: {
             pixelSize: 9,
             color: markerColor(rp.cfgKey),
             outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
             outlineWidth: 2,
           },
-          // ✅ kein label in der minimap
         });
         miniRemoteEntities.set(id, ent);
         playersDirtyForUi = true;
       }
+
       const ent = miniRemoteEntities.get(id);
-      ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
+      ent.position = Cesium.Cartesian3.fromDegrees(s.lon, s.lat, 0);
       if (ent.point) ent.point.color = markerColor(rp.cfgKey);
     }
     for (const [id, ent] of miniRemoteEntities) {
@@ -2189,11 +2269,8 @@ if (!mobileUiOnly && viewer) {
           lat = mapSubLat;
           lon = mapSubLon;
         } else {
-          const rp = [...remotePlayers.values()].find((x) => x.cfgKey === bigMapCenterFollowKey);
-          if (rp) {
-            lat = rp.curLat;
-            lon = rp.curLon;
-          }
+          const t = getRemoteStateByCarKey(bigMapCenterFollowKey);
+          if (t) { lat = t.lat; lon = t.lon; }
         }
 
         if (Number.isFinite(lat) && Number.isFinite(lon)) {
@@ -2239,7 +2316,7 @@ if (!mobileUiOnly && viewer) {
 
         if (!mapRemoteEntities.has(ck)) {
           const ent = mapViewer.entities.add({
-            position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
+            position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat, 0),
             point: { pixelSize: 10, color: markerColor(ck), outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
             label: {
               text: playerLabel(ck),
@@ -2255,7 +2332,7 @@ if (!mobileUiOnly && viewer) {
           mapRemoteEntities.set(ck, ent);
         } else {
           const ent = mapRemoteEntities.get(ck);
-          ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
+          ent.position = Cesium.Cartesian3.fromDegrees(s.lon, s.lat, 0);
           if (ent.label) ent.label.text = playerLabel(ck);
           if (ent.point) ent.point.color = markerColor(ck);
         }
@@ -2467,23 +2544,21 @@ if (!mobileUiOnly && viewer) {
     let camSubKmh = kmhDisplay;
 
     if (rideCarKey) {
-      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
-      if (rp) {
-        const t = rp.target || rp;
+      const t = getRemoteStateByCarKey(rideCarKey);
+      if (t) {
+        camSubLat = t.lat;
+        camSubLon = t.lon;
+        camSubHeading = t.heading;
 
-        camSubLat = Number.isFinite(t.lat) ? t.lat : rp.curLat;
-        camSubLon = Number.isFinite(t.lon) ? t.lon : rp.curLon;
-        camSubHeading = Number.isFinite(t.heading) ? t.heading : rp.curHeading;
+        camSubCfg = cfgByKey(rideCarKey);
 
-        camSubCfg = cfgByKey(rp.cfgKey);
-
-        const rs = Number.isFinite(t.speed) ? t.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0);
+        const rs = Number.isFinite(t.speed) ? t.speed : 0;
         camSubKmh = (Math.abs(rs) / SPEED_FEEL_SCALE) * 3.6;
 
-        if (typeof t.camView === "string") camView = t.camView; // ✅ 1:1 wie Fahrer
-        else camView = DEFAULT_CAM_VIEW;
+        camView = (typeof t.camView === "string") ? t.camView : DEFAULT_CAM_VIEW;
       }
     }
+
 
     const camSubjectKey = rideCarKey ? rideCarKey : activeCarKey;
 
@@ -2581,14 +2656,15 @@ if (!mobileUiOnly && viewer) {
     let displayGear = gear;
 
     if (rideCarKey) {
-      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
-      if (rp) {
-        const rs = Number.isFinite(rp.target?.speed) ? rp.target.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0);
+      const t = getRemoteStateByCarKey(rideCarKey);
+      if (t) {
+        const rs = Number.isFinite(t.speed) ? t.speed : 0;
         displayKmh = (Math.abs(rs) / SPEED_FEEL_SCALE) * 3.6;
-        if (typeof rp.target?.gear === "string") displayGear = rp.target.gear;
+        if (typeof t.gear === "string") displayGear = t.gear;
         who = `MITFAHREN: ${playerLabel(rideCarKey)}`;
       }
     }
+
 
     // ✅ HUD endlich updaten
     hudSpeed.textContent = `${Math.round(displayKmh)} km/h  •  ${displayGear}  •  ${who}${navText}`;
