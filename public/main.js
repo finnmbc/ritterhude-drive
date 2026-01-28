@@ -1206,8 +1206,8 @@ let mobileLoopStarted = false;
 let mobileArrowDirText = null;
 let mobileRadioBtn = null;
 
-const MOBILE_ARROW_BOTTOM = 235;   // vorher ~185/175 -> höher
-const MOBILE_DIR_GAP      = 200;   // Abstand zwischen Pfeil und Richtungstext
+const MOBILE_ARROW_BOTTOM = 265;   // vorher ~185/175 -> höher
+const MOBILE_DIR_GAP      = 250;   // Abstand zwischen Pfeil und Richtungstext
 
 
 function ensureMobileHud() {
