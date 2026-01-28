@@ -1226,7 +1226,7 @@ function ensureMobileHud() {
   mobileArrowDirText = document.createElement("div");
   mobileArrowDirText.style.position = "absolute";
   mobileArrowDirText.style.left = "50%";
-  mobileArrowDirText.style.bottom = "320px"; // über dem Pfeil
+  mobileArrowDirText.style.bottom = "385px"; // über dem Pfeil
   mobileArrowDirText.style.transform = "translateX(-50%)";
   mobileArrowDirText.style.padding = "8px 12px";
   mobileArrowDirText.style.borderRadius = "14px";
@@ -1245,20 +1245,20 @@ function ensureMobileHud() {
   mobileArrow = document.createElement("div");
   mobileArrow.style.position = "absolute";
   mobileArrow.style.left = "50%";
-  mobileArrow.style.bottom = "175px"; // oberhalb HUD
+  mobileArrow.style.bottom = "185px"; // oberhalb HUD
   mobileArrow.style.width = "0";
   mobileArrow.style.height = "0";
 
-  // großer, spitzer Arrow
-  mobileArrow.style.borderLeft = "48px solid transparent";
-  mobileArrow.style.borderRight = "48px solid transparent";
-  mobileArrow.style.borderBottom = "120px solid rgba(255,255,255,0.98)";
+  // ✅ XXL Pfeil
+  mobileArrow.style.borderLeft = "64px solid transparent";
+  mobileArrow.style.borderRight = "64px solid transparent";
+  mobileArrow.style.borderBottom = "170px solid rgba(255,255,255,0.98)";
 
-  // “Spitze” besser erkennbar: Outline + Shadow
+  // ✅ Spitze besser erkennbar durch stärkeren Shadow + leichte "Outline"-Illusion
   mobileArrow.style.filter =
-    "drop-shadow(0 14px 28px rgba(0,0,0,0.7)) drop-shadow(0 0 1px rgba(0,0,0,0.9))";
+    "drop-shadow(0 18px 36px rgba(0,0,0,0.72)) drop-shadow(0 0 2px rgba(0,0,0,0.9))";
   mobileArrow.style.transform = "translate(-50%,0) rotate(0rad)";
-  mobileArrow.style.transformOrigin = "50% 85%";
+  mobileArrow.style.transformOrigin = "50% 88%";
   mobileArrow.style.display = "none";
   mobileArrow.style.zIndex = "10005";
   document.body.appendChild(mobileArrow);
@@ -2231,7 +2231,7 @@ function startMobileLoop() {
 
       // ✅ Text zeigt die Ziel-Himmelsrichtung (Bearing) – NICHT relative Richtung
       if (mobileArrowDirText) {
-        mobileArrowDirText.textContent = headingToCompassLabel(brg);
+        mobileArrowDirText.textContent = headingToCompassLabel(getMobileHeadingForUi());
       }
     } else {
       mobileSetArrowVisible(false);
