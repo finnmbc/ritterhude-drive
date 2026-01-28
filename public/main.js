@@ -2094,7 +2094,6 @@ if (!mobileUiOnly && viewer) {
       // ✅ für HUD/Follow/Ride immer merken
       rp.rendered = s;
 
-      // Entity updaten
       if (viewer && rp.entity) {
         const cfg = cfgByKey(rp.cfgKey);
 
@@ -2116,8 +2115,7 @@ if (!mobileUiOnly && viewer) {
             rp.groundH = gh;
             rp.groundHReady = true;
           } else {
-            // smoothing (0.18..0.28) — höher = schneller, niedriger = ruhiger
-            rp.groundH += (gh - rp.groundH) * 0.22;
+            rp.groundH += (gh - rp.groundH) * 0.22; // smoothing
           }
         }
 
@@ -2132,12 +2130,18 @@ if (!mobileUiOnly && viewer) {
         );
         rp.entity.position = rp._tmpPos;
 
-        // reuse HPR + quaternion (keine neuen Objekte pro Frame)
+        // reuse HPR + quaternion
         rp._tmpHpr.heading = s.heading + Cesium.Math.toRadians(cfg.yawOffsetDeg ?? 0);
         rp._tmpHpr.pitch = Cesium.Math.toRadians(cfg.pitchOffsetDeg ?? 0);
-        rp._tmpHpr.roll = Cesium.Math.toRadians(cfg.rollOffsetDeg ?? 0);
+        rp._tmpHpr.roll  = Cesium.Math.toRadians(cfg.rollOffsetDeg ?? 0);
 
-        Cesium.Transforms.headingPitchRollQuaternion(rp._tmpPos, rp._tmpHpr, rp._tmpQuat);
+        // ✅ WICHTIG: 3. Param ist Ellipsoid, 4. ist result!
+        Cesium.Transforms.headingPitchRollQuaternion(
+          rp._tmpPos,
+          rp._tmpHpr,
+          undefined,
+          rp._tmpQuat
+        );
         rp.entity.orientation = rp._tmpQuat;
       }
     }
