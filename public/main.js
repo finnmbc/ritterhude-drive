@@ -2309,15 +2309,25 @@ if (!mobileUiOnly && viewer) {
       }
 
       const alive = new Set();
+
       for (const [, rp] of remotePlayers) {
         const ck = rp.cfgKey;
         if (!ck) continue;
+
+        const s = rp.rendered || rp.lastSample; // ✅ HIER wird s definiert
+        if (!s || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) continue;
+
         alive.add(ck);
 
         if (!mapRemoteEntities.has(ck)) {
           const ent = mapViewer.entities.add({
             position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat, 0),
-            point: { pixelSize: 10, color: markerColor(ck), outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
+            point: {
+              pixelSize: 10,
+              color: markerColor(ck),
+              outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+              outlineWidth: 2,
+            },
             label: {
               text: playerLabel(ck),
               font: "800 12px system-ui",
@@ -2337,6 +2347,7 @@ if (!mobileUiOnly && viewer) {
           if (ent.point) ent.point.color = markerColor(ck);
         }
       }
+
 
       for (const [ck, ent] of mapRemoteEntities) {
         if (!alive.has(ck)) {
