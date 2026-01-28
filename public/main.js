@@ -519,6 +519,28 @@ function applyClassStatusToMenu() {
   }
 }
 
+function getNearestRemotePlayer() {
+  let best = null;
+
+  for (const [, rp] of remotePlayers) {
+    const s = rp.rendered || rp.lastSample;
+    if (!s || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) continue;
+
+    const d = haversineMeters(carLat, carLon, s.lat, s.lon);
+    if (!best || d < best.d) {
+      best = { carKey: rp.cfgKey, lat: s.lat, lon: s.lon, d };
+    }
+  }
+  return best; // null wenn keiner da ist
+}
+
+function fmtDistance(m) {
+  if (!Number.isFinite(m)) return "–";
+  if (m < 1000) return `${Math.round(m)} m`;
+  return `${(m / 1000).toFixed(2)} km`;
+}
+
+
 // =====================================================
 // ✅ INTERPOLATION BUFFER (Render in the past)
 // =====================================================
@@ -1113,23 +1135,34 @@ function ensureMobileHud() {
   const c = document.getElementById("cesiumContainer");
   if (c) c.style.display = "none";
 
+  // ✅ Minimap im Mobile-UI komplett aus
+  if (miniDiv) miniDiv.style.display = "none";
+  try {
+    if (miniViewer && !miniViewer.isDestroyed?.()) miniViewer.destroy();
+  } catch {}
+
+
   if (hudControls) hudControls.style.display = "none";
   if (hudPlayers) hudPlayers.style.display = "none";
 
   mobileArrow = document.createElement("div");
   mobileArrow.style.position = "absolute";
   mobileArrow.style.left = "50%";
-  mobileArrow.style.top = "42%";
+  mobileArrow.style.bottom = "150px";     // ✅ oberhalb vom HUD
   mobileArrow.style.width = "0";
   mobileArrow.style.height = "0";
-  mobileArrow.style.borderLeft = "18px solid transparent";
-  mobileArrow.style.borderRight = "18px solid transparent";
-  mobileArrow.style.borderBottom = "34px solid rgba(255,255,255,0.95)";
-  mobileArrow.style.transform = "translate(-50%,-50%) rotate(0rad)";
-  mobileArrow.style.filter = "drop-shadow(0 6px 16px rgba(0,0,0,0.6))";
+
+  // ✅ deutlich größer
+  mobileArrow.style.borderLeft = "32px solid transparent";
+  mobileArrow.style.borderRight = "32px solid transparent";
+  mobileArrow.style.borderBottom = "64px solid rgba(255,255,255,0.95)";
+
+  mobileArrow.style.transform = "translate(-50%,0) rotate(0rad)";
+  mobileArrow.style.filter = "drop-shadow(0 10px 24px rgba(0,0,0,0.65))";
   mobileArrow.style.display = "none";
   mobileArrow.style.zIndex = "10005";
   document.body.appendChild(mobileArrow);
+
 
   mobileHud = document.createElement("div");
   mobileHud.style.position = "absolute";
@@ -1157,31 +1190,35 @@ function mobileSetArrowVisible(v) {
 function updateMobileHud(kmhDisplay) {
   if (!mobileHud) return;
 
-  const who = joinAccepted ? playerLabel(activeCarKey) : "Du";
-  let navText = "";
+  const whoBase = joinAccepted ? playerLabel(activeCarKey) : "Du";
+
+  const nearest = getNearestRemotePlayer();
+
+  let distText = "–";
   let arrowOn = false;
 
-  if (
-    navDest &&
-    Number.isFinite(navDest.lat) &&
-    Number.isFinite(navDest.lon) &&
-    Number.isFinite(carLat) &&
-    Number.isFinite(carLon)
-  ) {
-    const d = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
-    navText = ` • NAV: ${(d / 1000).toFixed(2)} km`;
+  if (nearest) {
+    distText = fmtDistance(nearest.d);
     arrowOn = true;
 
-    const brg = bearingRad(carLat, carLon, navDest.lat, navDest.lon);
+    // bearing -> relativ zur aktuellen heading (GPS oder geschätzt)
+    const brg = bearingRad(carLat, carLon, nearest.lat, nearest.lon);
     const rel = brg - (heading || 0);
-    mobileArrow.style.transform = `translate(-50%,-50%) rotate(${rel}rad)`;
+
+    mobileArrow.style.transform = `translate(-50%,0) rotate(${rel}rad)`;
   }
 
+  // ✅ Pfeil nur wenn Spieler existiert
   mobileSetArrowVisible(arrowOn);
 
-  const followText = navFollowCarKey ? ` • FOLLOW: ${playerLabel(navFollowCarKey)}` : "";
-  mobileHud.textContent = `${Math.round(kmhDisplay)} km/h  •  ${gear} •  ${who}${navText}${followText}`;
+  // ✅ HUD: neben Klasse die Luftlinie zum nächsten Spieler
+  // optional: auch anzeigen, WER es ist
+  const nearestName = nearest ? playerLabel(nearest.carKey) : "kein Spieler";
+
+  mobileHud.textContent =
+    `${Math.round(kmhDisplay)} km/h  •  ${gear}  •  ${whoBase}  •  ${distText}  •  ${nearestName}`;
 }
+
 
 // ✅ Player-Liste oben rechts
 const hudPlayers = document.createElement("div");
