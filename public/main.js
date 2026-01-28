@@ -1571,7 +1571,7 @@ function ensureMapOverlay() {
   h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.LEFT_DOWN);
   h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.RIGHT_DOWN);
   h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.MIDDLE_DOWN);
-  h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.WHEEL);
+  //h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.WHEEL);
   h.setInputAction(stopCenterFollow, Cesium.ScreenSpaceEventType.PINCH_START);
 
   (async () => {
