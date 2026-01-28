@@ -600,6 +600,15 @@ function startCompass() {
   window.addEventListener("deviceorientation", handler, true);
 }
 
+function headingToCompassLabel(rad) {
+  if (!Number.isFinite(rad)) return "–";
+  // 8er-Rose: N, NE, E, SE, S, SW, W, NW
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const deg = (Cesium.Math.toDegrees(rad) % 360 + 360) % 360;
+  const idx = Math.round(deg / 45) % 8;
+  return dirs[idx];
+}
+
 
 // =====================================================
 // ✅ INTERPOLATION BUFFER (Render in the past)
@@ -1194,6 +1203,8 @@ document.body.appendChild(hudSpeed);
 let mobileHud = null;
 let mobileArrow = null;
 let mobileLoopStarted = false;
+let mobileArrowDirText = null;
+
 
 function ensureMobileHud() {
   if (mobileHud) return;
@@ -1211,23 +1222,47 @@ function ensureMobileHud() {
   if (hudControls) hudControls.style.display = "none";
   if (hudPlayers) hudPlayers.style.display = "none";
 
+  // ✅ Richtungstext über dem Pfeil
+  mobileArrowDirText = document.createElement("div");
+  mobileArrowDirText.style.position = "absolute";
+  mobileArrowDirText.style.left = "50%";
+  mobileArrowDirText.style.bottom = "320px"; // über dem Pfeil
+  mobileArrowDirText.style.transform = "translateX(-50%)";
+  mobileArrowDirText.style.padding = "8px 12px";
+  mobileArrowDirText.style.borderRadius = "14px";
+  mobileArrowDirText.style.background = "rgba(0,0,0,0.55)";
+  mobileArrowDirText.style.border = "1px solid rgba(255,255,255,0.14)";
+  mobileArrowDirText.style.color = "white";
+  mobileArrowDirText.style.font = "1000 22px/1 system-ui, Arial";
+  mobileArrowDirText.style.letterSpacing = "0.08em";
+  mobileArrowDirText.style.zIndex = "10005";
+  mobileArrowDirText.style.userSelect = "none";
+  mobileArrowDirText.style.display = "none";
+  mobileArrowDirText.textContent = "N";
+  document.body.appendChild(mobileArrowDirText);
+
+  // ✅ Riesen-Pfeil (gut erkennliche Spitze)
   mobileArrow = document.createElement("div");
   mobileArrow.style.position = "absolute";
   mobileArrow.style.left = "50%";
-  mobileArrow.style.bottom = "150px";     // ✅ oberhalb vom HUD
+  mobileArrow.style.bottom = "175px"; // oberhalb HUD
   mobileArrow.style.width = "0";
   mobileArrow.style.height = "0";
 
-  // ✅ deutlich größer
-  mobileArrow.style.borderLeft = "32px solid transparent";
-  mobileArrow.style.borderRight = "32px solid transparent";
-  mobileArrow.style.borderBottom = "64px solid rgba(255,255,255,0.95)";
+  // großer, spitzer Arrow
+  mobileArrow.style.borderLeft = "48px solid transparent";
+  mobileArrow.style.borderRight = "48px solid transparent";
+  mobileArrow.style.borderBottom = "120px solid rgba(255,255,255,0.98)";
 
+  // “Spitze” besser erkennbar: Outline + Shadow
+  mobileArrow.style.filter =
+    "drop-shadow(0 14px 28px rgba(0,0,0,0.7)) drop-shadow(0 0 1px rgba(0,0,0,0.9))";
   mobileArrow.style.transform = "translate(-50%,0) rotate(0rad)";
-  mobileArrow.style.filter = "drop-shadow(0 10px 24px rgba(0,0,0,0.65))";
+  mobileArrow.style.transformOrigin = "50% 85%";
   mobileArrow.style.display = "none";
   mobileArrow.style.zIndex = "10005";
   document.body.appendChild(mobileArrow);
+
 
 
   mobileHud = document.createElement("div");
@@ -1248,22 +1283,19 @@ function ensureMobileHud() {
 }
 
 function mobileSetArrowVisible(v) {
-  if (!mobileArrow) return;
-  mobileArrow.style.display = v ? "block" : "none";
+  if (mobileArrow) mobileArrow.style.display = v ? "block" : "none";
+  if (mobileArrowDirText) mobileArrowDirText.style.display = v ? "block" : "none";
 }
 
 // Richtungspfeil: bearing(current -> dest) minus heading
 function updateMobileHud(kmhDisplay) {
   if (!mobileHud) return;
 
-  const whoBase = joinAccepted ? playerLabel(activeCarKey) : "Du";
-
-  const nearest = getNearestRemotePlayer();
+  const nearest = getNearestRemotePlayer(); // nutzt rp.rendered bevorzugt
   const distText = nearest ? fmtDistance(nearest.d) : "–";
-  const nearestName = nearest ? playerLabel(nearest.carKey) : "kein Spieler";
+  const nameText = nearest ? playerLabel(nearest.carKey) : "kein Spieler";
 
-  mobileHud.textContent =
-    `${Math.round(kmhDisplay)} km/h  •  ${gear}  •  ${whoBase}  •  ${distText}  •  ${nearestName}`;
+  mobileHud.textContent = `${Math.round(kmhDisplay)} km/h  •  ${distText}  •  ${nameText}`;
 }
 
 
@@ -2177,29 +2209,35 @@ function startMobileLoop() {
     // =====================================================
     // ✅ Nearest-Player Pfeil (smooth + Kompass/Heading passt)
     // =====================================================
-    const nearest = getNearestRemotePlayer(); // sollte rp.rendered bevorzugen
+    const nearest = getNearestRemotePlayer();
     if (nearest) {
       const brg = bearingRad(carLat, carLon, nearest.lat, nearest.lon);
 
-      // Kompass bevorzugen, sonst fallback heading
-      const ref = getMobileHeadingForUi(); // returns compassHeadingRad || heading
+      const ref = getMobileHeadingForUi(); // Kompass bevorzugt
       const target = brg - ref;
 
       if (!arrowAngleInit) {
         arrowAngleCur = target;
         arrowAngleInit = true;
       } else {
-        arrowAngleCur = lerpAngle(arrowAngleCur, target, 0.18); // 0.12..0.25
+        arrowAngleCur = lerpAngle(arrowAngleCur, target, 0.18);
       }
 
       mobileSetArrowVisible(true);
+
       if (mobileArrow) {
         mobileArrow.style.transform = `translate(-50%,0) rotate(${arrowAngleCur}rad)`;
+      }
+
+      // ✅ Text zeigt die Ziel-Himmelsrichtung (Bearing) – NICHT relative Richtung
+      if (mobileArrowDirText) {
+        mobileArrowDirText.textContent = headingToCompassLabel(brg);
       }
     } else {
       mobileSetArrowVisible(false);
       arrowAngleInit = false;
     }
+
 
     // =====================================================
     // ✅ NET SEND (10Hz)
