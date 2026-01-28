@@ -432,8 +432,8 @@ function setLocalCarModel(carKey) {
   localCarModelKey = carKey;
 
   const cfg = cfgByKey(carKey);
-  if (car) viewer.entities.remove(car);
-  car = createCarEntity(cfg);
+  //if (car) viewer.entities.remove(car);
+  //car = createCarEntity(cfg);
 }
 
 
@@ -461,7 +461,7 @@ async function spawnCar({ lat, lon, carKey, headingDeg = REWE_HEADING_DEG, reset
     return;
   }
 
-  if (car) viewer.entities.remove(car);
+  //if (car) viewer.entities.remove(car);
   car = createCarEntity(activeCfg);
   localCarModelKey = activeCarKey; // ✅ merken welches Model lokal aktiv ist
 
@@ -735,6 +735,7 @@ function toggleRide(carKey) {
     }
 
     playersDirtyForUi = true;
+    if (car) car.show = true;
     return;
   }
 
@@ -751,6 +752,8 @@ function toggleRide(carKey) {
   }
 
   rideCarKey = carKey;
+  if (car) car.show = true;
+
 
   // GPS aus beim Mitfahren
   if (gpsMode) setGpsMode(false);
@@ -2072,8 +2075,8 @@ if (!mobileUiOnly && viewer) {
         // falls unser lokales Model nicht passt -> neu erstellen
         const curUri = car?.model?.uri;
         if (viewer && (!car || curUri !== renderCfg.uri)) {
-          if (car) viewer.entities.remove(car);
-          car = createCarEntity(renderCfg);
+          //if (car) viewer.entities.remove(car);
+          //car = createCarEntity(renderCfg);
           heightReady = false;
         }
       }
@@ -2308,8 +2311,19 @@ if (!mobileUiOnly && viewer) {
     }
 
     // =====================================================
-    // ✅ Wenn kein eigenes Auto existiert -> hier abbrechen
+    // ✅ FIX: Wenn lokales Auto-Entity fehlt/versteckt ist -> sofort wiederherstellen
     // =====================================================
+    if (joinAccepted && viewer) {
+      if (!car) {
+        //car = createCarEntity(activeCfg);
+        heightReady = false;
+        updateHeight();
+      }
+      // falls es irgendwo auf show=false gesetzt wurde
+      car.show = true;
+    }
+
+    // wenn trotzdem kein car existiert, abbrechen
     if (!car) return;
 
     // ======= FAHREN / GPS OVERRIDE =======
