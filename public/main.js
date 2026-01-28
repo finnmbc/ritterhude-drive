@@ -523,21 +523,81 @@ function getNearestRemotePlayer() {
   let best = null;
 
   for (const [, rp] of remotePlayers) {
-    const s = rp.rendered || rp.lastSample;
+    const s = rp.rendered || rp.lastSample;   // ✅ rendered bevorzugen!
     if (!s || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) continue;
 
     const d = haversineMeters(carLat, carLon, s.lat, s.lon);
-    if (!best || d < best.d) {
-      best = { carKey: rp.cfgKey, lat: s.lat, lon: s.lon, d };
-    }
+    if (!best || d < best.d) best = { carKey: rp.cfgKey, lat: s.lat, lon: s.lon, d };
   }
-  return best; // null wenn keiner da ist
+  return best;
 }
 
 function fmtDistance(m) {
   if (!Number.isFinite(m)) return "–";
   if (m < 1000) return `${Math.round(m)} m`;
   return `${(m / 1000).toFixed(2)} km`;
+}
+
+
+function fmtDistance(m) {
+  if (!Number.isFinite(m)) return "–";
+  if (m < 1000) return `${Math.round(m)} m`;
+  return `${(m / 1000).toFixed(2)} km`;
+}
+
+
+let compassHeadingRad = null;
+let compassEnabled = false;
+
+function screenOrientationDeg() {
+  const ang = window.screen?.orientation?.angle;
+  if (Number.isFinite(ang)) return ang;
+  return (window.orientation || 0) || 0;
+}
+
+function alphaToCompassHeadingDeg(alphaDeg) {
+  let hdg = 360 - alphaDeg;
+  hdg = (hdg + screenOrientationDeg()) % 360;
+  if (hdg < 0) hdg += 360;
+  return hdg;
+}
+
+function getMobileHeadingForUi() {
+  return Number.isFinite(compassHeadingRad) ? compassHeadingRad : (heading || 0);
+}
+
+async function requestCompassPermissionIfNeeded() {
+  const DOE = window.DeviceOrientationEvent;
+  if (DOE?.requestPermission) {
+    const res = await DOE.requestPermission();
+    if (res !== "granted") throw new Error("DeviceOrientation permission denied");
+  }
+}
+
+function startCompass() {
+  if (compassEnabled) return;
+  compassEnabled = true;
+
+  const handler = (e) => {
+    let hdgDeg = null;
+
+    // iOS Safari
+    if (Number.isFinite(e.webkitCompassHeading)) {
+      hdgDeg = e.webkitCompassHeading;
+    } else if (Number.isFinite(e.alpha)) {
+      hdgDeg = alphaToCompassHeadingDeg(e.alpha);
+    }
+
+    if (!Number.isFinite(hdgDeg)) return;
+
+    const rad = Cesium.Math.toRadians(hdgDeg);
+
+    if (compassHeadingRad == null) compassHeadingRad = rad;
+    else compassHeadingRad = lerpAngle(compassHeadingRad, rad, 0.12);
+  };
+
+  window.addEventListener("deviceorientationabsolute", handler, true);
+  window.addEventListener("deviceorientation", handler, true);
 }
 
 
@@ -993,7 +1053,7 @@ function showCarSelectMenu() {
     btnPhone.style.cursor = "pointer";
     btnPhone.style.font = "900 16px system-ui, Arial";
 
-    function tryJoin({ usePhone } = {}) {
+    async function tryJoin({ usePhone } = {}) {
       if (joinPending || joinAccepted) return;
       if (!wsOpen) return setMenuHint("Server nicht verbunden…", true);
       if (classTaken[carKey]) return setMenuHint("Diese Klasse ist schon belegt.", true);
@@ -1001,6 +1061,12 @@ function showCarSelectMenu() {
       phoneJoinRequested = !!usePhone;
 
       if (phoneJoinRequested) {
+        try {
+          await requestCompassPermissionIfNeeded();
+          startCompass();
+        } catch (e) {
+          console.warn("Kompass Permission/Support:", e);
+        }
         setGpsMode(true);
         mobileUiOnly = true;
         ensureMobileHud();
@@ -1107,7 +1173,7 @@ hudControls.style.userSelect = "none";
 hudControls.innerHTML = `W/A/S/D = Fahren<br>Pfeile = Kamera halten<br>R = REWE<br>E = Hupe<br>Q = Radio<br>M = Map/Navi`;
 document.body.appendChild(hudControls);
 
-const hudSpeed = document.createElement("div");
+/*const hudSpeed = document.createElement("div");
 hudSpeed.style.position = "absolute";
 hudSpeed.style.left = "50%";
 hudSpeed.style.bottom = "18px";
@@ -1120,7 +1186,7 @@ hudSpeed.style.font = "600 18px/1.1 system-ui, Arial";
 hudSpeed.style.zIndex = "9999";
 hudSpeed.style.userSelect = "none";
 hudSpeed.textContent = "0 km/h";
-document.body.appendChild(hudSpeed);
+document.body.appendChild(hudSpeed);*/
 
 // =====================================================
 // ✅ MOBILE HUD (ohne Cesium Render)
@@ -1193,31 +1259,13 @@ function updateMobileHud(kmhDisplay) {
   const whoBase = joinAccepted ? playerLabel(activeCarKey) : "Du";
 
   const nearest = getNearestRemotePlayer();
-
-  let distText = "–";
-  let arrowOn = false;
-
-  if (nearest) {
-    distText = fmtDistance(nearest.d);
-    arrowOn = true;
-
-    // bearing -> relativ zur aktuellen heading (GPS oder geschätzt)
-    const brg = bearingRad(carLat, carLon, nearest.lat, nearest.lon);
-    const rel = brg - (heading || 0);
-
-    mobileArrow.style.transform = `translate(-50%,0) rotate(${rel}rad)`;
-  }
-
-  // ✅ Pfeil nur wenn Spieler existiert
-  mobileSetArrowVisible(arrowOn);
-
-  // ✅ HUD: neben Klasse die Luftlinie zum nächsten Spieler
-  // optional: auch anzeigen, WER es ist
+  const distText = nearest ? fmtDistance(nearest.d) : "–";
   const nearestName = nearest ? playerLabel(nearest.carKey) : "kein Spieler";
 
   mobileHud.textContent =
     `${Math.round(kmhDisplay)} km/h  •  ${gear}  •  ${whoBase}  •  ${distText}  •  ${nearestName}`;
 }
+
 
 
 // ✅ Player-Liste oben rechts
@@ -2030,26 +2078,63 @@ function startMobileLoop() {
   mobileLoopStarted = true;
   ensureMobileHud();
 
+  // GPS an (wie vorher)
   setGpsMode(true);
+
+  // ✅ Kompass starten (Permission muss idealerweise schon im Button-Click passiert sein,
+  // aber wir versuchen es hier nochmal "best effort")
+  (async () => {
+    try {
+      await requestCompassPermissionIfNeeded();
+      startCompass();
+    } catch (e) {
+      console.warn("Kompass nicht verfügbar/Permission:", e);
+    }
+  })();
 
   let last = performance.now();
   let netT = 0;
+
+  // ✅ Pfeil-Glättung (Angle)
+  let arrowAngleCur = 0;
+  let arrowAngleInit = false;
 
   function tick() {
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
 
+    // =====================================================
+    // ✅ Remote interpolation auch im Mobile-Loop
+    // =====================================================
+    const renderTime = performance.now() - INTERP_DELAY_MS;
+    for (const [, rp] of remotePlayers) {
+      const s = sampleHistoryAt(rp.history, renderTime) || rp.lastSample;
+      if (s) rp.rendered = s;
+    }
+
     let kmhDisplay = 0;
 
+    // =====================================================
+    // ✅ GPS Fix -> Position; Heading: GPS bei Fahrt, sonst Kompass
+    // =====================================================
     if (gpsFix && Number.isFinite(gpsFix.lat) && Number.isFinite(gpsFix.lon)) {
       carLat = gpsFix.lat;
       carLon = gpsFix.lon;
-      if (Number.isFinite(gpsFix.headingRad)) heading = gpsFix.headingRad;
 
-      const s = Number.isFinite(gpsFix.speedMps) ? gpsFix.speedMps : 0;
-      speed = s * SPEED_FEEL_SCALE;
-      kmhDisplay = s * 3.6;
+      const sMps = Number.isFinite(gpsFix.speedMps) ? gpsFix.speedMps : 0;
+
+      // GPS-Heading ist gut bei Bewegung; bei Stillstand besser Kompass
+      if (Number.isFinite(gpsFix.headingRad) && sMps > 1.2) {
+        heading = gpsFix.headingRad;
+      } else if (Number.isFinite(compassHeadingRad)) {
+        heading = compassHeadingRad;
+      } else if (Number.isFinite(gpsFix.headingRad)) {
+        heading = gpsFix.headingRad;
+      }
+
+      speed = sMps * SPEED_FEEL_SCALE;
+      kmhDisplay = sMps * 3.6;
 
       gear = "D";
       sArmed = false;
@@ -2060,8 +2145,11 @@ function startMobileLoop() {
       gear = "D";
     }
 
+    // =====================================================
+    // ✅ FOLLOW Ziel updaten (nutzt interpolierte States)
+    // =====================================================
     if (navFollowCarKey) {
-      const t = getRemoteStateByCarKey(navFollowCarKey);
+      const t = getRemoteStateByCarKey(navFollowCarKey); // nutzt rp.rendered
       if (t) {
         navDest = { lat: t.lat, lon: t.lon };
         navDestMode = "follow";
@@ -2075,6 +2163,9 @@ function startMobileLoop() {
       }
     }
 
+    // =====================================================
+    // ✅ Auto-Clear bei Ankunft (egal ob manuelles Ziel oder Follow)
+    // =====================================================
     if (navDest && Number.isFinite(navDest.lat) && Number.isFinite(navDest.lon)) {
       const dArr = haversineMeters(carLat, carLon, navDest.lat, navDest.lon);
       if (dArr <= 100) {
@@ -2083,18 +2174,51 @@ function startMobileLoop() {
       }
     }
 
+    // =====================================================
+    // ✅ Nearest-Player Pfeil (smooth + Kompass/Heading passt)
+    // =====================================================
+    const nearest = getNearestRemotePlayer(); // sollte rp.rendered bevorzugen
+    if (nearest) {
+      const brg = bearingRad(carLat, carLon, nearest.lat, nearest.lon);
+
+      // Kompass bevorzugen, sonst fallback heading
+      const ref = getMobileHeadingForUi(); // returns compassHeadingRad || heading
+      const target = brg - ref;
+
+      if (!arrowAngleInit) {
+        arrowAngleCur = target;
+        arrowAngleInit = true;
+      } else {
+        arrowAngleCur = lerpAngle(arrowAngleCur, target, 0.18); // 0.12..0.25
+      }
+
+      mobileSetArrowVisible(true);
+      if (mobileArrow) {
+        mobileArrow.style.transform = `translate(-50%,0) rotate(${arrowAngleCur}rad)`;
+      }
+    } else {
+      mobileSetArrowVisible(false);
+      arrowAngleInit = false;
+    }
+
+    // =====================================================
+    // ✅ NET SEND (10Hz)
+    // =====================================================
     netT += dt;
     if (netT > 0.1) {
       netT = 0;
       sendMyState();
     }
 
+    // ✅ HUD Text (inkl. Distanz zum nächsten Spieler) macht updateMobileHud selbst
     updateMobileHud(kmhDisplay);
+
     requestAnimationFrame(tick);
   }
 
   requestAnimationFrame(tick);
 }
+
 
 // =====================================================
 // ✅ DESKTOP LOOP (postRender)
