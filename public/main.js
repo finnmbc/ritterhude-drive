@@ -425,6 +425,18 @@ function createCarEntity(cfg) {
   });
 }
 
+function setLocalCarModel(carKey) {
+  if (!viewer) return;
+  if (localCarModelKey === carKey && car) return;
+
+  localCarModelKey = carKey;
+
+  const cfg = cfgByKey(carKey);
+  if (car) viewer.entities.remove(car);
+  car = createCarEntity(cfg);
+}
+
+
 let gear = "D";
 let sArmed = false;
 let wArmed = false;
@@ -451,6 +463,8 @@ async function spawnCar({ lat, lon, carKey, headingDeg = REWE_HEADING_DEG, reset
 
   if (car) viewer.entities.remove(car);
   car = createCarEntity(activeCfg);
+  localCarModelKey = activeCarKey; // ✅ merken welches Model lokal aktiv ist
+
 
   await updateHeight();
 
@@ -683,33 +697,78 @@ let navDestMode = null; // "manual" | "follow" | null
 // ✅ MITFAHREN / AUSSTEIGEN (Spectator Camera)
 // =====================================================
 let rideCarKey = null; // null = nicht mitfahren, sonst "KONA"/"BENZ"/"BULLI"
-let rideFrozen = null; // merkt sich deine Position beim Einsteigen
+
+// ✅ Backup für "aussteigen" (Position/Heading/Speed/Gear + welcher Wagen war aktiv)
+let rideBackup = null; // { lat, lon, heading, speed, gear, carKey }
+
+// ✅ merkt, welches Model gerade im lokalen car-Entity steckt (gegen doppeltes respawn)
+let localCarModelKey = null;
+
 
 function toggleRide(carKey) {
   if (!carKey) return;
 
-  // aussteigen
+  // ✅ AUSSTEIGEN
   if (rideCarKey === carKey) {
     rideCarKey = null;
-    rideFrozen = null;
+
+    // Restore deiner echten Position / Zustand
+    if (rideBackup) {
+      carLat = rideBackup.lat;
+      carLon = rideBackup.lon;
+      heading = rideBackup.heading;
+      speed = rideBackup.speed;
+      gear = rideBackup.gear;
+
+      // Dein echtes Auto wieder anzeigen
+      activeCarKey = rideBackup.carKey;
+      activeCfg = CAR_CONFIGS[activeCarKey];
+      if (viewer) setLocalCarModel(activeCarKey);
+
+      rideBackup = null;
+
+      // Höhe neu ziehen, sonst kann er “in der Luft / im Boden” hängen
+      heightReady = false;
+      updateHeight();
+
+      // Kamera sauber zurück auf dich
+      if (viewer) {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(carLon, carLat, 900),
+          orientation: { heading: heading, pitch: Cesium.Math.toRadians(-35), roll: 0 },
+          duration: 0.35,
+        });
+      }
+    }
+
     playersDirtyForUi = true;
     return;
   }
 
-  // einsteigen: eigene Position "einfrieren"
-  rideCarKey = carKey;
-  rideFrozen = {
-    lat: carLat,
-    lon: carLon,
-    heading: heading,
-    gear: gear,
-  };
+  // ✅ EINSTEIGEN (falls schon bei anderem drin -> Backup bleibt, wir springen nur um)
+  if (!rideCarKey) {
+    // Backup nur beim ersten Einsteigen setzen
+    rideBackup = {
+      lat: carLat,
+      lon: carLon,
+      heading: heading,
+      speed: speed,
+      gear: gear,
+      carKey: activeCarKey,
+    };
+  }
 
-  // GPS beim Mitfahren aus (sonst würde es dich weiter "ziehen")
+  rideCarKey = carKey;
+
+  // GPS aus, sonst zieht es dich
   if (gpsMode) setGpsMode(false);
+
+  // Lokales Model sofort auf Fahrer-Auto setzen (einmalig)
+  if (viewer) setLocalCarModel(rideCarKey);
 
   playersDirtyForUi = true;
 }
+
 
 function clearNav() {
   navDest = null;
@@ -1818,10 +1877,9 @@ let lastTime = performance.now();
 let netTimer = 0;
 
 function sendMyState() {
-  // ✅ Workaround: beim Mitfahren NICHT senden (sonst überschreibst du den Fahrer)
-  if (rideCarKey) return;
-
+  if (rideCarKey) return; // ✅ beim Mitfahren NICHT senden
   if (!joinAccepted || !wsOpen) return;
+
   ws.send(
     JSON.stringify({
       type: "state",
@@ -1830,10 +1888,11 @@ function sendMyState() {
       heading: heading,
       speed: speed,
       gear: gear,
-      camView: camView, // bleibt
+      camView: camView,
     })
   );
 }
+
 
 function startMobileLoop() {
   if (mobileLoopStarted) return;
@@ -1915,10 +1974,20 @@ if (!mobileUiOnly && viewer) {
     const dt = Math.min(0.05, (now - lastTime) / 1000);
     lastTime = now;
 
+    let renderCfgKey = activeCarKey; // ✅ welches Auto rendern wir lokal?
+
+
     // =====================================================
     // ✅ REMOTE SMOOTH läuft IMMER (auch wenn car noch null ist)
     // =====================================================
     for (const [, rp] of remotePlayers) {
+
+      // ✅ wenn wir den Spieler "besitzen" (mitfahren), sein Remote-Entity verstecken,
+      // damit kein Doppelauto am gleichen Ort erscheint
+      if (rp.entity) {
+        rp.entity.show = !(rideCarKey && rp.cfgKey === rideCarKey);
+      }
+
       const t = rp.target;
       if (!t) continue;
 
@@ -1951,6 +2020,37 @@ if (!mobileUiOnly && viewer) {
       const ts = rp.target?.speed;
       if (Number.isFinite(ts)) rp.curSpeed += (ts - rp.curSpeed) * alpha2;
     }
+
+    // =====================================================
+    // ✅ RIDE-POSSESSION: wir tun so als wären wir der Fahrer (nur Render/Kamera/HUD),
+    //    aber ohne Spawn-Chaos und mit sauberem Restore beim Aussteigen.
+    // =====================================================
+    if (rideCarKey) {
+      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
+
+      if (!rp) {
+        // Fahrer weg -> automatisch aussteigen
+        toggleRide(rideCarKey);
+      } else {
+        const t = rp.target || rp;
+
+        // Wir rendern/simulieren jetzt "uns" auf der Fahrerposition
+        carLat = Number.isFinite(t.lat) ? t.lat : rp.curLat;
+        carLon = Number.isFinite(t.lon) ? t.lon : rp.curLon;
+        heading = Number.isFinite(t.heading) ? t.heading : rp.curHeading;
+
+        speed = Number.isFinite(t.speed) ? t.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0);
+        if (typeof t.gear === "string") gear = t.gear;
+
+        if (typeof t.camView === "string") camView = t.camView;
+        else camView = DEFAULT_CAM_VIEW;
+
+        renderCfgKey = rideCarKey;
+
+        // ✅ lokales Model ist beim toggleRide schon gesetzt, hier nicht mehr neu spawnen!
+      }
+    }
+
 
     // =====================================================
     // ✅ WORKAROUND: Mitfahren = wir übernehmen 1:1 den Fahrer-State
@@ -2348,6 +2448,9 @@ if (!mobileUiOnly && viewer) {
     }
     const groundH = heightReady ? carHeight : (getHeightFallback() ?? 0);
 
+    // ✅ NEU: cfg fürs Rendern (bei Mitfahren = Ride-Auto, sonst = eigenes)
+    renderCfg = cfgByKey(renderCfgKey);
+
     const pos = Cesium.Cartesian3.fromDegrees(carLon, carLat, groundH + (renderCfg.zLift ?? 0));
     car.position = pos;
 
@@ -2357,6 +2460,7 @@ if (!mobileUiOnly && viewer) {
       Cesium.Math.toRadians(renderCfg.rollOffsetDeg ?? 0)
     );
     car.orientation = Cesium.Transforms.headingPitchRollQuaternion(pos, hpr);
+
 
     // ======= CAMERA =======
     let camSubLat = carLat;
