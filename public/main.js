@@ -1204,6 +1204,10 @@ let mobileHud = null;
 let mobileArrow = null;
 let mobileLoopStarted = false;
 let mobileArrowDirText = null;
+let mobileRadioBtn = null;
+
+const MOBILE_ARROW_BOTTOM = 235;   // vorher ~185/175 -> höher
+const MOBILE_DIR_GAP      = 200;   // Abstand zwischen Pfeil und Richtungstext
 
 
 function ensureMobileHud() {
@@ -1226,7 +1230,7 @@ function ensureMobileHud() {
   mobileArrowDirText = document.createElement("div");
   mobileArrowDirText.style.position = "absolute";
   mobileArrowDirText.style.left = "50%";
-  mobileArrowDirText.style.bottom = "385px"; // über dem Pfeil
+  mobileArrowDirText.style.bottom = `${MOBILE_ARROW_BOTTOM + MOBILE_DIR_GAP}px`; // über dem Pfeil
   mobileArrowDirText.style.transform = "translateX(-50%)";
   mobileArrowDirText.style.padding = "8px 12px";
   mobileArrowDirText.style.borderRadius = "14px";
@@ -1245,20 +1249,20 @@ function ensureMobileHud() {
   mobileArrow = document.createElement("div");
   mobileArrow.style.position = "absolute";
   mobileArrow.style.left = "50%";
-  mobileArrow.style.bottom = "185px"; // oberhalb HUD
+  mobileArrow.style.bottom = `${MOBILE_ARROW_BOTTOM}px`; // oberhalb HUD
   mobileArrow.style.width = "0";
   mobileArrow.style.height = "0";
 
   // ✅ XXL Pfeil
-  mobileArrow.style.borderLeft = "64px solid transparent";
-  mobileArrow.style.borderRight = "64px solid transparent";
-  mobileArrow.style.borderBottom = "170px solid rgba(255,255,255,0.98)";
+  mobileArrow.style.borderLeft = "78px solid transparent";
+  mobileArrow.style.borderRight = "78px solid transparent";
+  mobileArrow.style.borderBottom = "210px solid rgba(255,255,255,0.98)";
 
   // ✅ Spitze besser erkennbar durch stärkeren Shadow + leichte "Outline"-Illusion
   mobileArrow.style.filter =
-    "drop-shadow(0 18px 36px rgba(0,0,0,0.72)) drop-shadow(0 0 2px rgba(0,0,0,0.9))";
+    "drop-shadow(0 22px 44px rgba(0,0,0,0.72)) drop-shadow(0 0 2px rgba(0,0,0,0.95))";
   mobileArrow.style.transform = "translate(-50%,0) rotate(0rad)";
-  mobileArrow.style.transformOrigin = "50% 88%";
+  mobileArrow.style.transformOrigin = "50% 90%";
   mobileArrow.style.display = "none";
   mobileArrow.style.zIndex = "10005";
   document.body.appendChild(mobileArrow);
@@ -1268,7 +1272,7 @@ function ensureMobileHud() {
   mobileHud = document.createElement("div");
   mobileHud.style.position = "absolute";
   mobileHud.style.left = "12px";
-  mobileHud.style.right = "12px";
+  mobileHud.style.right = "80px";
   mobileHud.style.bottom = "14px";
   mobileHud.style.padding = "14px 16px";
   mobileHud.style.borderRadius = "16px";
@@ -1280,6 +1284,34 @@ function ensureMobileHud() {
   mobileHud.style.userSelect = "none";
   mobileHud.textContent = "Verbinde…";
   document.body.appendChild(mobileHud);
+
+  mobileRadioBtn = document.createElement("button");
+  mobileRadioBtn.textContent = radioOn ? "🔊" : "🔈";
+  mobileRadioBtn.title = "Radio an/aus";
+
+  mobileRadioBtn.style.position = "absolute";
+  mobileRadioBtn.style.right = "12px";
+  mobileRadioBtn.style.bottom = "14px"; // gleiche Höhe wie HUD
+  mobileRadioBtn.style.width = "56px";
+  mobileRadioBtn.style.height = "56px";
+  mobileRadioBtn.style.borderRadius = "16px";
+  mobileRadioBtn.style.border = "1px solid rgba(255,255,255,0.18)";
+  mobileRadioBtn.style.background = "rgba(255,255,255,0.10)";
+  mobileRadioBtn.style.color = "white";
+  mobileRadioBtn.style.font = "900 22px system-ui, Arial";
+  mobileRadioBtn.style.zIndex = "10007";
+  mobileRadioBtn.style.cursor = "pointer";
+  mobileRadioBtn.style.userSelect = "none";
+  mobileRadioBtn.style.boxShadow = "0 10px 26px rgba(0,0,0,0.35)";
+
+  mobileRadioBtn.onclick = async () => {
+    // ✅ Autoplay: wenn blockiert -> nächster Tap klappt meist
+    await toggleRadio();
+    mobileRadioBtn.textContent = radioOn ? "🔊" : "🔈";
+  };
+
+  document.body.appendChild(mobileRadioBtn);
+
 }
 
 function mobileSetArrowVisible(v) {
