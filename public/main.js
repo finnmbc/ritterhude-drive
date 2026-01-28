@@ -1876,6 +1876,14 @@ function updatePlayerListHud() {
   });
 }
 
+// ✅ UI immer updaten – auch wenn car noch nicht da ist
+setInterval(() => {
+  if (!playersDirtyForUi) return;
+  updatePlayerListHud();
+  playersDirtyForUi = false;
+}, 200);
+
+
 // =====================================================
 // MINIMAP ENTITIES
 // =====================================================
