@@ -1185,8 +1185,8 @@ hudSpeed.style.color = "white";
 hudSpeed.style.font = "600 18px/1.1 system-ui, Arial";
 hudSpeed.style.zIndex = "9999";
 hudSpeed.style.userSelect = "none";
-hudSpeed.textContent = "0 km/h";
-//document.body.appendChild(hudSpeed);
+//hudSpeed.textContent = "0 km/h";
+document.body.appendChild(hudSpeed);
 
 // =====================================================
 // ✅ MOBILE HUD (ohne Cesium Render)
