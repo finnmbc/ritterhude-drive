@@ -1173,7 +1173,7 @@ hudControls.style.userSelect = "none";
 hudControls.innerHTML = `W/A/S/D = Fahren<br>Pfeile = Kamera halten<br>R = REWE<br>E = Hupe<br>Q = Radio<br>M = Map/Navi`;
 document.body.appendChild(hudControls);
 
-/*const hudSpeed = document.createElement("div");
+const hudSpeed = document.createElement("div");
 hudSpeed.style.position = "absolute";
 hudSpeed.style.left = "50%";
 hudSpeed.style.bottom = "18px";
@@ -1186,7 +1186,7 @@ hudSpeed.style.font = "600 18px/1.1 system-ui, Arial";
 hudSpeed.style.zIndex = "9999";
 hudSpeed.style.userSelect = "none";
 hudSpeed.textContent = "0 km/h";
-document.body.appendChild(hudSpeed);*/
+//document.body.appendChild(hudSpeed);
 
 // =====================================================
 // ✅ MOBILE HUD (ohne Cesium Render)
