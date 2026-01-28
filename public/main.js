@@ -1800,19 +1800,16 @@ function ensureMiniMe() {
   if (miniEntities.me) return;
   miniEntities.me = miniViewer.entities.add({
     position: Cesium.Cartesian3.fromDegrees(carLon, carLat, 0),
-    point: { pixelSize: 10, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
-    label: {
-      text: "DU",
-      font: "800 11px system-ui",
-      pixelOffset: new Cesium.Cartesian2(0, -16),
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.CYAN,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+      outlineWidth: 2,
     },
+    // ✅ kein label in der minimap
   });
 }
+
 
 // =====================================================
 // DRIVE LOOP + NET SEND + REMOTE SMOOTH
@@ -1821,6 +1818,9 @@ let lastTime = performance.now();
 let netTimer = 0;
 
 function sendMyState() {
+  // ✅ Workaround: beim Mitfahren NICHT senden (sonst überschreibst du den Fahrer)
+  if (rideCarKey) return;
+
   if (!joinAccepted || !wsOpen) return;
   ws.send(
     JSON.stringify({
@@ -1830,7 +1830,7 @@ function sendMyState() {
       heading: heading,
       speed: speed,
       gear: gear,
-      camView: camView, // ✅ NEU: damit Mitfahrer 1:1 Fahrer-Kamera sehen können (Server muss durchreichen)
+      camView: camView, // bleibt
     })
   );
 }
@@ -1952,6 +1952,49 @@ if (!mobileUiOnly && viewer) {
       if (Number.isFinite(ts)) rp.curSpeed += (ts - rp.curSpeed) * alpha2;
     }
 
+    // =====================================================
+    // ✅ WORKAROUND: Mitfahren = wir übernehmen 1:1 den Fahrer-State
+    //    und rendern IHN als unser lokales Auto + lokale Kamera
+    // =====================================================
+    let renderCfg = activeCfg;
+
+    if (rideCarKey) {
+      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
+
+      if (!rp) {
+        rideCarKey = null;
+        rideFrozen = null;
+        playersDirtyForUi = true;
+      } else {
+        const t = rp.target || rp;
+
+        // ✅ 1:1 Fahrer-Position übernehmen
+        carLat = Number.isFinite(t.lat) ? t.lat : rp.curLat;
+        carLon = Number.isFinite(t.lon) ? t.lon : rp.curLon;
+        heading = Number.isFinite(t.heading) ? t.heading : rp.curHeading;
+
+        // ✅ Speed/Gear übernehmen (für HUD + Cam-Feeling)
+        speed = Number.isFinite(t.speed) ? t.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0);
+        if (typeof t.gear === "string") gear = t.gear;
+
+        // ✅ Kamera-View vom Fahrer übernehmen
+        if (typeof t.camView === "string") camView = t.camView;
+        else camView = DEFAULT_CAM_VIEW;
+
+        // ✅ wir rendern das Auto des Fahrers als "unser" Auto
+        renderCfg = cfgByKey(rideCarKey);
+
+        // falls unser lokales Model nicht passt -> neu erstellen
+        const curUri = car?.model?.uri;
+        if (viewer && (!car || curUri !== renderCfg.uri)) {
+          if (car) viewer.entities.remove(car);
+          car = createCarEntity(renderCfg);
+          heightReady = false;
+        }
+      }
+    }
+
+
     // ✅ FOLLOW Ziel updaten
     if (navFollowCarKey) {
       const rp = [...remotePlayers.values()].find((x) => x.cfgKey === navFollowCarKey);
@@ -2021,32 +2064,27 @@ if (!mobileUiOnly && viewer) {
 
     ensureMiniMe();
     miniEntities.me.position = Cesium.Cartesian3.fromDegrees(mapSubLon, mapSubLat, 0);
-    if (miniEntities.me.label) {
-      miniEntities.me.label.text = rideCarKey ? `MITFAHREN` : playerLabel(activeCarKey);
-    }
 
     for (const [id, rp] of remotePlayers) {
+      // ✅ beim Mitfahren den "Ride-Spieler" nicht doppelt als Remote anzeigen
+      if (rideCarKey && rp.cfgKey === rideCarKey) continue;
+
       if (!miniRemoteEntities.has(id)) {
         const ent = miniViewer.entities.add({
           position: Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0),
-          point: { pixelSize: 9, color: markerColor(rp.cfgKey), outlineColor: Cesium.Color.BLACK.withAlpha(0.6), outlineWidth: 2 },
-          label: {
-            text: playerLabel(rp.cfgKey || "???"),
-            font: "800 11px system-ui",
-            pixelOffset: new Cesium.Cartesian2(0, -16),
-            fillColor: Cesium.Color.WHITE,
-            outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 3,
-            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          point: {
+            pixelSize: 9,
+            color: markerColor(rp.cfgKey),
+            outlineColor: Cesium.Color.BLACK.withAlpha(0.6),
+            outlineWidth: 2,
           },
+          // ✅ kein label in der minimap
         });
         miniRemoteEntities.set(id, ent);
         playersDirtyForUi = true;
       }
       const ent = miniRemoteEntities.get(id);
       ent.position = Cesium.Cartesian3.fromDegrees(rp.curLon, rp.curLat, 0);
-      if (ent.label) ent.label.text = playerLabel(rp.cfgKey || "???");
       if (ent.point) ent.point.color = markerColor(rp.cfgKey);
     }
     for (const [id, ent] of miniRemoteEntities) {
@@ -2198,24 +2236,12 @@ if (!mobileUiOnly && viewer) {
     // =====================================================
     if (!car) return;
 
-    // =====================================================
-    // ✅ Mitfahren: eigene Position einfrieren
-    // =====================================================
-    if (rideCarKey && rideFrozen) {
-      carLat = rideFrozen.lat;
-      carLon = rideFrozen.lon;
-      heading = rideFrozen.heading;
-      gear = rideFrozen.gear || "D";
-      speed = 0;
-    }
-
     // ======= FAHREN / GPS OVERRIDE =======
     let kmhDisplay = 0;
 
     if (rideCarKey) {
-      speed = 0;
-      kmhDisplay = 0;
-      gear = "D";
+      // ✅ State kommt bereits 1:1 vom Fahrer (oben im Workaround)
+      kmhDisplay = (Math.abs(speed) / SPEED_FEEL_SCALE) * 3.6;
       sArmed = false;
       wArmed = false;
     } else if (gpsMode) {
@@ -2322,13 +2348,13 @@ if (!mobileUiOnly && viewer) {
     }
     const groundH = heightReady ? carHeight : (getHeightFallback() ?? 0);
 
-    const pos = Cesium.Cartesian3.fromDegrees(carLon, carLat, groundH + activeCfg.zLift);
+    const pos = Cesium.Cartesian3.fromDegrees(carLon, carLat, groundH + (renderCfg.zLift ?? 0));
     car.position = pos;
 
     const hpr = new Cesium.HeadingPitchRoll(
-      heading + Cesium.Math.toRadians(activeCfg.yawOffsetDeg ?? 0),
-      Cesium.Math.toRadians(activeCfg.pitchOffsetDeg ?? 0),
-      Cesium.Math.toRadians(activeCfg.rollOffsetDeg ?? 0)
+      heading + Cesium.Math.toRadians(renderCfg.yawOffsetDeg ?? 0),
+      Cesium.Math.toRadians(renderCfg.pitchOffsetDeg ?? 0),
+      Cesium.Math.toRadians(renderCfg.rollOffsetDeg ?? 0)
     );
     car.orientation = Cesium.Transforms.headingPitchRollQuaternion(pos, hpr);
 
