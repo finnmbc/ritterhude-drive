@@ -708,11 +708,11 @@ let localCarModelKey = null;
 function toggleRide(carKey) {
   if (!carKey) return;
 
-  // ✅ AUSSTEIGEN
+  // AUSSTEIGEN
   if (rideCarKey === carKey) {
     rideCarKey = null;
 
-    // Restore deiner echten Position / Zustand
+    // Restore: wieder in deinen normalen Zustand
     if (rideBackup) {
       carLat = rideBackup.lat;
       carLon = rideBackup.lon;
@@ -720,18 +720,11 @@ function toggleRide(carKey) {
       speed = rideBackup.speed;
       gear = rideBackup.gear;
 
-      // Dein echtes Auto wieder anzeigen
-      activeCarKey = rideBackup.carKey;
-      activeCfg = CAR_CONFIGS[activeCarKey];
-      if (viewer) setLocalCarModel(activeCarKey);
-
       rideBackup = null;
 
-      // Höhe neu ziehen, sonst kann er “in der Luft / im Boden” hängen
       heightReady = false;
       updateHeight();
 
-      // Kamera sauber zurück auf dich
       if (viewer) {
         viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(carLon, carLat, 900),
@@ -745,9 +738,8 @@ function toggleRide(carKey) {
     return;
   }
 
-  // ✅ EINSTEIGEN (falls schon bei anderem drin -> Backup bleibt, wir springen nur um)
+  // EINSTEIGEN: Backup deiner Position/Zustand (damit dein Auto da stehen bleibt)
   if (!rideCarKey) {
-    // Backup nur beim ersten Einsteigen setzen
     rideBackup = {
       lat: carLat,
       lon: carLon,
@@ -760,14 +752,12 @@ function toggleRide(carKey) {
 
   rideCarKey = carKey;
 
-  // GPS aus, sonst zieht es dich
+  // GPS aus beim Mitfahren
   if (gpsMode) setGpsMode(false);
-
-  // Lokales Model sofort auf Fahrer-Auto setzen (einmalig)
-  if (viewer) setLocalCarModel(rideCarKey);
 
   playersDirtyForUi = true;
 }
+
 
 
 function clearNav() {
@@ -1985,7 +1975,7 @@ if (!mobileUiOnly && viewer) {
       // ✅ wenn wir den Spieler "besitzen" (mitfahren), sein Remote-Entity verstecken,
       // damit kein Doppelauto am gleichen Ort erscheint
       if (rp.entity) {
-        rp.entity.show = !(rideCarKey && rp.cfgKey === rideCarKey);
+        //rp.entity.show = !(rideCarKey && rp.cfgKey === rideCarKey);
       }
 
       const t = rp.target;
@@ -2022,34 +2012,29 @@ if (!mobileUiOnly && viewer) {
     }
 
     // =====================================================
-    // ✅ RIDE-POSSESSION: wir tun so als wären wir der Fahrer (nur Render/Kamera/HUD),
-    //    aber ohne Spawn-Chaos und mit sauberem Restore beim Aussteigen.
+    // ✅ RIDE SUBJECT: beim Mitfahren folgen Kamera/Minimap dem Fahrer,
+    //    aber dein eigenes Auto bleibt auf rideBackup-Position stehen.
     // =====================================================
+    let rideSub = null; // {lat,lon,heading,speed,gear,camView}
+
     if (rideCarKey) {
       const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
-
       if (!rp) {
         // Fahrer weg -> automatisch aussteigen
         toggleRide(rideCarKey);
       } else {
         const t = rp.target || rp;
-
-        // Wir rendern/simulieren jetzt "uns" auf der Fahrerposition
-        carLat = Number.isFinite(t.lat) ? t.lat : rp.curLat;
-        carLon = Number.isFinite(t.lon) ? t.lon : rp.curLon;
-        heading = Number.isFinite(t.heading) ? t.heading : rp.curHeading;
-
-        speed = Number.isFinite(t.speed) ? t.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0);
-        if (typeof t.gear === "string") gear = t.gear;
-
-        if (typeof t.camView === "string") camView = t.camView;
-        else camView = DEFAULT_CAM_VIEW;
-
-        renderCfgKey = rideCarKey;
-
-        // ✅ lokales Model ist beim toggleRide schon gesetzt, hier nicht mehr neu spawnen!
+        rideSub = {
+          lat: Number.isFinite(t.lat) ? t.lat : rp.curLat,
+          lon: Number.isFinite(t.lon) ? t.lon : rp.curLon,
+          heading: Number.isFinite(t.heading) ? t.heading : rp.curHeading,
+          speed: Number.isFinite(t.speed) ? t.speed : (Number.isFinite(rp.curSpeed) ? rp.curSpeed : 0),
+          gear: typeof t.gear === "string" ? t.gear : "D",
+          camView: typeof t.camView === "string" ? t.camView : DEFAULT_CAM_VIEW,
+        };
       }
     }
+
 
 
     // =====================================================
@@ -2127,22 +2112,13 @@ if (!mobileUiOnly && viewer) {
     let mapSubLon = carLon;
     let mapSubHeading = heading;
 
-    if (rideCarKey) {
-      const rp = [...remotePlayers.values()].find((x) => x.cfgKey === rideCarKey);
-      if (rp) {
-        const t = rp.target || rp;
-        mapSubLat = Number.isFinite(t.lat) ? t.lat : rp.curLat;
-        mapSubLon = Number.isFinite(t.lon) ? t.lon : rp.curLon;
-        mapSubHeading = Number.isFinite(t.heading) ? t.heading : rp.curHeading;
+    if (rideSub) {
+      mapSubLat = rideSub.lat;
+      mapSubLon = rideSub.lon;
+      mapSubHeading = rideSub.heading;
 
-        // ✅ Mitfahren: camView vom Fahrer übernehmen (Server muss camView mitsenden)
-        if (typeof rp.target?.camView === "string") camView = rp.target.camView;
-        else camView = DEFAULT_CAM_VIEW;
-      } else {
-        rideCarKey = null;
-        rideFrozen = null;
-        playersDirtyForUi = true;
-      }
+      // ✅ View kommt vom Fahrer
+      camView = rideSub.camView;
     }
 
     // =====================================================
@@ -2167,7 +2143,7 @@ if (!mobileUiOnly && viewer) {
 
     for (const [id, rp] of remotePlayers) {
       // ✅ beim Mitfahren den "Ride-Spieler" nicht doppelt als Remote anzeigen
-      if (rideCarKey && rp.cfgKey === rideCarKey) continue;
+      //if (rideCarKey && rp.cfgKey === rideCarKey) continue;
 
       if (!miniRemoteEntities.has(id)) {
         const ent = miniViewer.entities.add({
@@ -2340,8 +2316,15 @@ if (!mobileUiOnly && viewer) {
     let kmhDisplay = 0;
 
     if (rideCarKey) {
-      // ✅ State kommt bereits 1:1 vom Fahrer (oben im Workaround)
-      kmhDisplay = (Math.abs(speed) / SPEED_FEEL_SCALE) * 3.6;
+      // ✅ beim Mitfahren: eigenes Auto bleibt stehen (rideBackup Position)
+      speed = 0;
+      if (rideBackup) {
+        carLat = rideBackup.lat;
+        carLon = rideBackup.lon;
+        heading = rideBackup.heading;
+        gear = rideBackup.gear;
+      }
+      kmhDisplay = 0;
       sArmed = false;
       wArmed = false;
     } else if (gpsMode) {
@@ -2560,8 +2543,15 @@ if (!mobileUiOnly && viewer) {
       camLat_ = camSubLat + (offCY + strafeY) / metersPerDegLat;
     }
 
+    let camGroundH = groundH;
+    if (rideSub && viewer) {
+      const ccCam = Cesium.Cartographic.fromDegrees(camSubLon, camSubLat);
+      const ghCam = viewer.scene.globe.getHeight(ccCam);
+      if (Number.isFinite(ghCam)) camGroundH = ghCam;
+    }
+
     viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(camLon_, camLat_, groundH + camHeight_),
+      destination: Cesium.Cartesian3.fromDegrees(camLon_, camLat_, camGroundH + camHeight_),
       orientation: { heading: camHeading_, pitch: camPitch_, roll: 0 },
     });
 
