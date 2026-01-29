@@ -307,14 +307,6 @@ function bearingRad(lat1, lon1, lat2, lon2) {
 }
 
 function startGpsWatch() {
-  // inside watchPosition success, after gpsFix is set:
-  if (!gpsNetInit && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-    gpsNetLat = latitude;
-    gpsNetLon = longitude;
-    gpsNetHeading = headingRad_ ?? gpsNetHeading ?? 0;
-    gpsNetInit = true;
-  }
-
   if (!navigator.geolocation) {
     console.warn("Geolocation nicht verfügbar.");
     return;
@@ -330,8 +322,9 @@ function startGpsWatch() {
       const nextFix = { lat: latitude, lon: longitude, ts: pos.timestamp };
       if (headingRad_ == null && gpsPrevFix) {
         const moved = haversineMeters(gpsPrevFix.lat, gpsPrevFix.lon, nextFix.lat, nextFix.lon);
-        if (moved > 2.0)
+        if (moved > 2.0) {
           headingRad_ = bearingRad(gpsPrevFix.lat, gpsPrevFix.lon, nextFix.lat, nextFix.lon);
+        }
       }
       gpsPrevFix = nextFix;
 
@@ -343,6 +336,16 @@ function startGpsWatch() {
         headingRad: headingRad_,
         speedMps: Number.isFinite(sMps) ? sMps : null,
       };
+
+      // =====================================================
+      // ✅ Schritt B: gpsNet* beim ersten Fix initialisieren
+      // =====================================================
+      if (!gpsNetInit && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        gpsNetLat = latitude;
+        gpsNetLon = longitude;
+        gpsNetHeading = headingRad_ ?? gpsNetHeading ?? 0;
+        gpsNetInit = true;
+      }
     },
     (err) => {
       console.warn("GPS Fehler:", err);
@@ -355,6 +358,7 @@ function startGpsWatch() {
     }
   );
 }
+
 
 function stopGpsWatch() {
   if (gpsWatchId == null) return;
