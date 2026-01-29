@@ -1,7 +1,5 @@
-// server.js  ✅ KOPIERFERTIG (dein Code + HUPE-BROADCAST)
+// server.js ✅ KOPIERFERTIG (ts/vMps/gps/camView im Snapshot + Horn Broadcast)
 // ------------------------------------------------------
-// Änderung: msg.type === "horn" wird an alle Clients gebroadcastet
-//          (inkl. id + lat/lon), damit jeder die Hupe hört.
 
 const path = require("path");
 const http = require("http");
@@ -32,9 +30,9 @@ const CLASS_SPAWNS = {
   BULLI: { lat: 53.18605835934793, lon: 8.745079683720112, headingDeg: 90 },
 };
 
-const players = new Map(); // id -> player
+const players = new Map();    // id -> player
 const classLocks = new Map(); // carKey -> id
-const clients = new Map(); // ws -> id
+const clients = new Map();    // ws -> id
 
 function send(ws, obj) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
@@ -82,16 +80,11 @@ wss.on("connection", (ws) => {
     const pid = clients.get(ws);
     if (!pid) return;
 
-    // =====================================================
-    // ✅ HUPE: an alle broadcasten (damit jeder sie hört)
-    // Client sendet: { type:"horn", lat, lon }
-    // Server broadcastet: { type:"horn", id, lat, lon }
-    // =====================================================
+    // ✅ HUPE: an alle broadcasten (inkl. id + optional lat/lon)
     if (msg.type === "horn") {
       const lat = +msg.lat;
       const lon = +msg.lon;
 
-      // Lat/Lon optional, aber wenn da: prüfen
       if (Number.isFinite(lat) && Number.isFinite(lon)) {
         broadcast({ type: "horn", id: pid, lat, lon });
       } else {
@@ -132,10 +125,20 @@ wss.on("connection", (ws) => {
         lat: sp.lat,
         lon: sp.lon,
         heading: (sp.headingDeg * Math.PI) / 180,
-        speed: 0,
+
+        // ✅ NEU: echte Geschwindigkeit (m/s) + Sender-Timestamp + Flags
+        vMps: 0,
+        ts: Date.now(),
+        gps: false,
+        camView: "rear",
+
         gear: "D",
-        t: Date.now(),
+
+        // optional legacy:
+        speed: 0,
+        t: Date.now(), // lastSeen server
       };
+
       players.set(pid, p);
 
       send(ws, { type: "join_accepted", carKey, spawn: sp });
@@ -152,16 +155,39 @@ wss.on("connection", (ws) => {
       const lat = +msg.lat;
       const lon = +msg.lon;
       const heading = +msg.heading;
+
+      const ts = +msg.ts;       // Epoch ms vom Client (optional)
+      const vMps = +msg.vMps;   // echte m/s vom Client (optional)
+
+      // legacy fallback (falls Client noch altes speed sendet)
       const speed = +msg.speed;
 
-      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(heading) || !Number.isFinite(speed)) return;
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(heading)) return;
+
+      const hasTs = Number.isFinite(ts) && ts > 0;
+      const hasVMps = Number.isFinite(vMps);
 
       p.lat = lat;
       p.lon = lon;
       p.heading = heading;
-      p.speed = speed;
+
+      p.ts = hasTs ? ts : Date.now();
+
+      if (hasVMps) p.vMps = vMps;
+      else if (Number.isFinite(speed)) p.vMps = speed; // ⚠️ nur korrekt, wenn speed=m/s
+
+      p.gps = !!msg.gps;
+
+      if (typeof msg.camView === "string") p.camView = msg.camView;
+
       p.gear = msg.gear === "R" ? "R" : "D";
-      p.t = Date.now();
+
+      // optional legacy: speed spiegeln
+      if (hasVMps) p.speed = vMps;
+      else if (Number.isFinite(speed)) p.speed = speed;
+
+      p.t = Date.now(); // lastSeen (server)
+      return;
     }
   });
 
@@ -170,6 +196,7 @@ wss.on("connection", (ws) => {
     clients.delete(ws);
 
     const p = pid ? players.get(pid) : null;
+
     if (p?.carKey) {
       const lockedBy = classLocks.get(p.carKey);
       if (lockedBy === pid) classLocks.delete(p.carKey);

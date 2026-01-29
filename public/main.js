@@ -551,13 +551,6 @@ function fmtDistance(m) {
 }
 
 
-function fmtDistance(m) {
-  if (!Number.isFinite(m)) return "–";
-  if (m < 1000) return `${Math.round(m)} m`;
-  return `${(m / 1000).toFixed(2)} km`;
-}
-
-
 let compassHeadingRad = null;
 let compassEnabled = false;
 
@@ -623,6 +616,10 @@ function headingToCompassLabel(rad) {
 
 ///HELPERS HIER
 
+function getInterpDelayFor(rp) {
+  return rp?.isGps ? 650 : INTERP_DELAY_MS; // ✅ GPS: mehr Delay = mehr Samples zum verbinden
+}
+
 // =====================================================
 // ✅ GPS NET SMOOTHING (Dead reckoning + correction)
 // =====================================================
@@ -667,16 +664,16 @@ function sampleHistoryAt(history, renderTime) {
   if (renderTime <= history[0].t) return history[0];
   const last = history[history.length - 1];
   if (renderTime >= last.t) {
-    // ✅ kleine Extrapolation (max ~350ms), sonst clamp
-    const dtMs = Math.min(350, renderTime - last.t);
+    // ✅ Prediction (max 1200ms), danach clamp
+    const dtMs = Math.min(1200, renderTime - last.t);
     const dtS = dtMs / 1000;
 
-    const v = Number.isFinite(last.speed) ? last.speed : 0; // das ist bei dir m/s*feel
+    const v = Number.isFinite(last.vMps) ? last.vMps : 0;
     const forward = v * dtS;
 
     if (forward > 0.0 && Number.isFinite(last.heading)) {
-      const dx = Math.sin(last.heading) * forward;
-      const dy = Math.cos(last.heading) * forward;
+      const dx = Math.sin(last.heading) * forward; // Ost
+      const dy = Math.cos(last.heading) * forward; // Nord
       const dLat = dy / metersPerDegLat;
       const dLon = dx / metersPerDegLon(last.lat);
 
@@ -687,8 +684,10 @@ function sampleHistoryAt(history, renderTime) {
         lon: last.lon + dLon,
       };
     }
+
     return { ...last, t: renderTime };
   }
+
 
 
   // Lineare Suche reicht bei kleinen Arrays; sonst binary search
@@ -870,7 +869,7 @@ ws.addEventListener("message", async (ev) => {
 
   if (msg.type === "snapshot") {
     const arr = msg.players || [];
-    const nowT = performance.now(); // Empfangszeit (lokal)
+    const nowEpoch = Date.now(); // ✅ Epoch ms (passt zu p.ts)
 
     for (const p of arr) {
       if (!p?.id || p.id === myId) continue;
@@ -885,16 +884,22 @@ ws.addEventListener("message", async (ev) => {
           entity,
           cfgKey: p.carKey,
 
-          // ✅ NEU: Interpolation-Buffer
+          // ✅ Interpolation-Buffer
           history: [],
           lastSample: null,
-          rendered: null, // optional: wird später im Renderloop gesetzt
+          rendered: null,
+
+          // ✅ für Delay/Prediction-Tuning
+          isGps: !!p.gps,
         });
 
         playersDirtyForUi = true;
       }
 
       const rp = remotePlayers.get(p.id);
+
+      // ✅ GPS Flag updaten (für Delay)
+      rp.isGps = !!p.gps;
 
       // ✅ falls Auto-Klasse wechselt -> Entity neu
       if (rp.cfgKey !== p.carKey) {
@@ -904,30 +909,43 @@ ws.addEventListener("message", async (ev) => {
         playersDirtyForUi = true;
       }
 
-      // ✅ Sample in History (für Render-Delay / Interpolation)
+      // ✅ Timestamp vom Sender (Epoch ms) nutzen, sonst fallback
+      const t = Number.isFinite(p.ts) ? p.ts : (Number.isFinite(p.t) ? p.t : nowEpoch);
+
+      // ✅ echte m/s bevorzugen (Prediction), sonst fallback
+      //    (wenn du noch "speed" (feel) sendest, ist das NICHT ideal – besser vMps senden)
+      const vMps =
+        Number.isFinite(p.vMps) ? p.vMps :
+        (Number.isFinite(p.speed) ? (p.speed / SPEED_FEEL_SCALE) : 0);
+
       const sample = {
-        t: nowT, // oder: p.ts, wenn Server einen Timestamp mitschickt
+        t, // ✅ Epoch ms
+
         lat: Number.isFinite(p.lat) ? p.lat : rp.lastSample?.lat,
         lon: Number.isFinite(p.lon) ? p.lon : rp.lastSample?.lon,
         heading: Number.isFinite(p.heading) ? p.heading : (rp.lastSample?.heading ?? 0),
-        speed: Number.isFinite(p.speed) ? p.speed : 0,
+
+        // ✅ Prediction nutzt vMps
+        vMps,
+
         gear: typeof p.gear === "string" ? p.gear : "D",
         camView: typeof p.camView === "string" ? p.camView : DEFAULT_CAM_VIEW,
         carKey: p.carKey,
+
+        gps: !!p.gps,
       };
 
-      // falls lat/lon doch mal fehlen -> skip (verhindert NaNs in History)
+      // falls lat/lon fehlen -> skip
       if (!Number.isFinite(sample.lat) || !Number.isFinite(sample.lon)) continue;
 
       pushHistory(rp, sample);
       rp.lastSample = sample;
     }
 
-    // ✅ UI ggf. updaten
     playersDirtyForUi = true;
-
     return;
   }
+
 });
 
 // =====================================================
@@ -2172,21 +2190,28 @@ let lastTime = performance.now();
 let netTimer = 0;
 
 function sendMyState() {
-  if (rideCarKey) return; // ✅ beim Mitfahren NICHT senden
+  if (rideCarKey) return;
   if (!joinAccepted || !wsOpen) return;
+
+  // ✅ echte Geschwindigkeit in m/s (nicht "feel")
+  // speed ist bei dir "feel", daher zurückrechnen:
+  const vMps = Number.isFinite(speed) ? (speed / SPEED_FEEL_SCALE) : 0;
 
   ws.send(
     JSON.stringify({
       type: "state",
+      ts: Date.now(),              // ✅ Sender-Timestamp (Epoch ms)
       lat: carLat,
       lon: carLon,
       heading: heading,
-      speed: speed,
+      vMps: vMps,                  // ✅ echte m/s
       gear: gear,
       camView: camView,
+      gps: !!gpsMode,              // ✅ optional: hilft beim Delay-Tuning
     })
   );
 }
+
 
 
 function startMobileLoop() {
@@ -2220,14 +2245,26 @@ function startMobileLoop() {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
 
-    // =====================================================
-    // ✅ Remote interpolation auch im Mobile-Loop
-    // =====================================================
-    const renderTime = performance.now() - INTERP_DELAY_MS;
+    const nowEpoch = Date.now();
     for (const [, rp] of remotePlayers) {
+      const delay = getInterpDelayFor(rp);
+      const renderTime = nowEpoch - delay;
+
       const s = sampleHistoryAt(rp.history, renderTime) || rp.lastSample;
       if (s) rp.rendered = s;
     }
+
+    // =====================================================
+    // ✅ Remote interpolation auch im Mobile-Loop
+    // =====================================================
+    for (const [, rp] of remotePlayers) {
+    const delay = getInterpDelayFor(rp);
+    const renderTime = nowEpoch - delay;
+
+    const s = sampleHistoryAt(rp.history, renderTime) || rp.lastSample;
+    if (s) rp.rendered = s;
+  }
+
 
     let kmhDisplay = 0;
 
@@ -2391,13 +2428,15 @@ if (!mobileUiOnly && viewer) {
     // =====================================================
     // ✅ REMOTE INTERPOLATION (render in the past)
     // =====================================================
-    const renderTime = performance.now() - INTERP_DELAY_MS;
+    const nowEpoch = Date.now();
 
     for (const [, rp] of remotePlayers) {
+      const delay = getInterpDelayFor(rp);
+      const renderTime = nowEpoch - delay;
+
       const s = sampleHistoryAt(rp.history, renderTime) || rp.lastSample;
       if (!s) continue;
 
-      // Entity updaten
       if (viewer && rp.entity) {
         const cfg = cfgByKey(rp.cfgKey);
         const cc = Cesium.Cartographic.fromDegrees(s.lon, s.lat);
@@ -2415,9 +2454,9 @@ if (!mobileUiOnly && viewer) {
         rp.entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(ppos, rhpr);
       }
 
-      // Optional: Für HUD/Follow/Ride brauchst du den interpolierten Zustand irgendwo:
-      rp.rendered = s; // ✅ merken
+      rp.rendered = s;
     }
+
 
     // =====================================================
     // ✅ RIDE SUBJECT: beim Mitfahren folgen Kamera/Minimap dem Fahrer,
