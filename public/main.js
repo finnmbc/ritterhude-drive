@@ -307,6 +307,14 @@ function bearingRad(lat1, lon1, lat2, lon2) {
 }
 
 function startGpsWatch() {
+  // inside watchPosition success, after gpsFix is set:
+  if (!gpsNetInit && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    gpsNetLat = latitude;
+    gpsNetLon = longitude;
+    gpsNetHeading = headingRad_ ?? gpsNetHeading ?? 0;
+    gpsNetInit = true;
+  }
+
   if (!navigator.geolocation) {
     console.warn("Geolocation nicht verfügbar.");
     return;
@@ -609,6 +617,23 @@ function headingToCompassLabel(rad) {
   return dirs[idx];
 }
 
+///HELPERS HIER
+
+// =====================================================
+// ✅ GPS NET SMOOTHING (Dead reckoning + correction)
+// =====================================================
+let gpsNetLat = null;
+let gpsNetLon = null;
+let gpsNetHeading = null;
+let gpsNetInit = false;
+
+function metersToLatLonDelta(latDeg, dxMeters, dyMeters) {
+  // dx: Ost, dy: Nord
+  const dLat = dyMeters / metersPerDegLat;
+  const dLon = dxMeters / metersPerDegLon(latDeg);
+  return { dLat, dLon };
+}
+
 
 // =====================================================
 // ✅ INTERPOLATION BUFFER (Render in the past)
@@ -637,7 +662,30 @@ function sampleHistoryAt(history, renderTime) {
   // Wenn renderTime vor erstem Sample oder nach letztem -> clamp
   if (renderTime <= history[0].t) return history[0];
   const last = history[history.length - 1];
-  if (renderTime >= last.t) return last;
+  if (renderTime >= last.t) {
+    // ✅ kleine Extrapolation (max ~350ms), sonst clamp
+    const dtMs = Math.min(350, renderTime - last.t);
+    const dtS = dtMs / 1000;
+
+    const v = Number.isFinite(last.speed) ? last.speed : 0; // das ist bei dir m/s*feel
+    const forward = v * dtS;
+
+    if (forward > 0.0 && Number.isFinite(last.heading)) {
+      const dx = Math.sin(last.heading) * forward;
+      const dy = Math.cos(last.heading) * forward;
+      const dLat = dy / metersPerDegLat;
+      const dLon = dx / metersPerDegLon(last.lat);
+
+      return {
+        ...last,
+        t: renderTime,
+        lat: last.lat + dLat,
+        lon: last.lon + dLon,
+      };
+    }
+    return { ...last, t: renderTime };
+  }
+
 
   // Lineare Suche reicht bei kleinen Arrays; sonst binary search
   let i = history.length - 2;
@@ -2180,24 +2228,57 @@ function startMobileLoop() {
     let kmhDisplay = 0;
 
     // =====================================================
-    // ✅ GPS Fix -> Position; Heading: GPS bei Fahrt, sonst Kompass
+    // ✅ GPS Fix -> Network-smoothed position (no snapping)
     // =====================================================
     if (gpsFix && Number.isFinite(gpsFix.lat) && Number.isFinite(gpsFix.lon)) {
-      carLat = gpsFix.lat;
-      carLon = gpsFix.lon;
-
       const sMps = Number.isFinite(gpsFix.speedMps) ? gpsFix.speedMps : 0;
 
-      // GPS-Heading ist gut bei Bewegung; bei Stillstand besser Kompass
-      if (Number.isFinite(gpsFix.headingRad) && sMps > 1.2) {
-        heading = gpsFix.headingRad;
-      } else if (Number.isFinite(compassHeadingRad)) {
-        heading = compassHeadingRad;
-      } else if (Number.isFinite(gpsFix.headingRad)) {
-        heading = gpsFix.headingRad;
+      // Heading-Quelle wie bei dir: GPS bei Fahrt, sonst Kompass
+      let targetHeading = heading;
+      if (Number.isFinite(gpsFix.headingRad) && sMps > 1.2) targetHeading = gpsFix.headingRad;
+      else if (Number.isFinite(compassHeadingRad)) targetHeading = compassHeadingRad;
+      else if (Number.isFinite(gpsFix.headingRad)) targetHeading = gpsFix.headingRad;
+
+      // init
+      if (!gpsNetInit || !Number.isFinite(gpsNetLat) || !Number.isFinite(gpsNetLon)) {
+        gpsNetLat = gpsFix.lat;
+        gpsNetLon = gpsFix.lon;
+        gpsNetHeading = targetHeading;
+        gpsNetInit = true;
       }
 
-      speed = sMps * SPEED_FEEL_SCALE;
+      // 1) Dead-reckoning (zwischen GPS Fixes vorwärts)
+      // (verwende echte Geschwindigkeit, NICHT SPEED_FEEL_SCALE)
+      const forward = sMps * dt; // Meter in diesem Frame
+      if (forward > 0.0 && Number.isFinite(targetHeading)) {
+        const dx = Math.sin(targetHeading) * forward; // Ost
+        const dy = Math.cos(targetHeading) * forward; // Nord
+        const { dLat, dLon } = metersToLatLonDelta(gpsNetLat, dx, dy);
+        gpsNetLat += dLat;
+        gpsNetLon += dLon;
+      }
+
+      // 2) Correction Richtung GPS Fix (gain abhängig von Fehler & accuracy)
+      const errM = haversineMeters(gpsNetLat, gpsNetLon, gpsFix.lat, gpsFix.lon);
+      const acc = Number.isFinite(gpsFix.acc) ? gpsFix.acc : 20;
+
+      // Basis-klein, bei großem Fehler stärker korrigieren, bei schlechter acc weniger aggressiv
+      const accFactor = Cesium.Math.clamp(20 / Math.max(10, acc), 0.35, 1.0);
+      const k = Cesium.Math.clamp((0.06 + errM / 160.0) * accFactor, 0.06, 0.35);
+
+      gpsNetLat = lerp(gpsNetLat, gpsFix.lat, k);
+      gpsNetLon = lerp(gpsNetLon, gpsFix.lon, k);
+
+      // Heading ebenfalls glätten
+      if (!Number.isFinite(gpsNetHeading)) gpsNetHeading = targetHeading;
+      gpsNetHeading = lerpAngle(gpsNetHeading, targetHeading, 0.18);
+
+      // --> DAS sind jetzt die "car" Werte (für HUD + Netzwerk)
+      carLat = gpsNetLat;
+      carLon = gpsNetLon;
+      heading = gpsNetHeading;
+
+      speed = sMps * SPEED_FEEL_SCALE;   // nur fürs Feeling / Anzeige / deine Logik
       kmhDisplay = sMps * 3.6;
 
       gear = "D";
@@ -2208,6 +2289,7 @@ function startMobileLoop() {
       kmhDisplay = 0;
       gear = "D";
     }
+
 
     // =====================================================
     // ✅ FOLLOW Ziel updaten (nutzt interpolierte States)
